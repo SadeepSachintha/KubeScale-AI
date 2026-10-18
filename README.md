@@ -6,6 +6,29 @@
 [![Triton Inference Server](https://img.shields.io/badge/NVIDIA-Triton_24.05-76B900?logo=nvidia&logoColor=white)](https://github.com/triton-inference-server/server)
 [![Apache Kafka](https://img.shields.io/badge/Strimzi-Kafka_3.7-231F20?logo=apachekafka&logoColor=white)](https://strimzi.io/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.111-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-Tracing_APM-F5A800?logo=opentelemetry&logoColor=white)](https://opentelemetry.io/)
+[![Chaos Mesh](https://img.shields.io/badge/Chaos_Mesh-Resilience_Tested-00A98F?logo=kubernetes&logoColor=white)](https://chaos-mesh.org/)
+
+---
+
+## Table of Contents
+* [1. Executive Summary & Problem Statement](#1-executive-summary--problem-statement)
+* [2. System Architecture & Sequence Flows](#2-system-architecture)
+* [3. Scope Deliverables & Technical Modules](#3-scope-deliverables--technical-modules)
+* [4. Repository File Structure](#4-repository-file-structure)
+* [5. Quick Start & Execution Guide](#5-quick-start--execution-guide)
+* [6. API Reference & Sample Payloads](#6-api-reference--sample-payloads)
+* [7. Elasticity Testing & Autoscaling (HPA & KEDA)](#7-elasticity-testing--autoscaling-hpa--keda)
+* [8. Deep Observability & Curated Grafana Dashboards](#8-deep-observability--curated-grafana-dashboards)
+* [9. Secret Decoupling with External Secrets Operator (ESO)](#9-secret-decoupling-with-external-secrets-operator-eso)
+* [10. Progressive Delivery & Automated Canary Rollbacks (Flagger)](#10-progressive-delivery--automated-canary-rollbacks-flagger)
+* [11. GitOps Continuous Delivery (ArgoCD)](#11-gitops-continuous-delivery-argocd)
+* [12. Zero-Trust Security Policies (Kyverno)](#12-zero-trust-security-policies-kyverno)
+* [13. Dynamic Multi-Model Serving & Triton Live Reload](#13-dynamic-multi-model-serving--triton-live-reload)
+* [14. OpenTelemetry Distributed Tracing & APM](#14-opentelemetry-distributed-tracing--apm)
+* [15. Chaos Engineering & Fault-Injection Resilience Suite (Chaos Mesh)](#15-chaos-engineering--fault-injection-resilience-suite-chaos-mesh)
+* [16. Continuous Integration & Quality Assurance](#16-continuous-integration--quality-assurance)
+* [17. License](#17-license)
 
 ---
 
@@ -152,46 +175,91 @@ kubescale-ai/
 │           ├── inference-service.yaml # Multi-port service (HTTP 8000, gRPC 8001, Metrics 8002)
 │           ├── inference-serviceaccount.yaml # ServiceAccount annotated with IRSA role ARN
 │           ├── kafka-cluster.yaml     # Strimzi Kafka 3-broker StatefulSet & KafkaTopics
+│           ├── keda-scaledobjects.yaml# Event-driven autoscaling for Kafka lag & Triton queue
+│           ├── external-secrets.yaml  # SecretStore & ExternalSecret syncing from AWS Secrets Manager
+│           ├── canary.yaml            # Flagger progressive delivery canary configuration
+│           ├── kyverno-policies.yaml  # Zero-Trust Pod Security Standards admission rules
+│           ├── tracing-jaeger.yaml    # OpenTelemetry Collector & Jaeger APM deployment
+│           ├── servicemonitors.yaml   # Prometheus Operator ServiceMonitors for telemetry
+│           ├── prometheus-rules.yaml  # Production alerting rules (SLOs, Latency, Kafka lag)
 │           ├── hpa.yaml               # Horizontal Pod Autoscalers (2-10 replicas)
 │           ├── ingress.yaml           # Ingress-Nginx routing with cert-manager annotations
 │           ├── configmap.yaml         # Cluster configuration keys
-│           ├── model-configmap.yaml   # Triton config.pbtxt configuration
+│           ├── model-configmap.yaml   # Triton config.pbtxt configuration for multi-models
 │           ├── pdb.yaml               # PodDisruptionBudget for rolling availability
 │           └── secrets.yaml           # Base64 cluster secrets
 ├── gateway/
 │   ├── Dockerfile                     # Multi-stage secure non-root container build
-│   ├── requirements.txt               # FastAPI, Triton gRPC, Kafka, and Prometheus
+│   ├── requirements.txt               # FastAPI, Triton gRPC, Kafka, OTEL, PyYAML, Prometheus
 │   ├── app/
 │   │   ├── __init__.py
 │   │   ├── config.py                  # Pydantic BaseSettings environment loader
-│   │   ├── schemas.py                 # Request/Response models for inference & Kafka events
-│   │   ├── triton_client.py           # Async non-blocking gRPC Triton client wrapper
+│   │   ├── schemas.py                 # Request/Response models & model control schemas
+│   │   ├── triton_client.py           # Async gRPC client with dynamic reload & retry backoff
 │   │   ├── kafka_producer.py          # Resilient Kafka producer with circuit breaking
-│   │   └── main.py                    # FastAPI application with probes and Prometheus metrics
+│   │   ├── telemetry.py               # OpenTelemetry tracer & W3C context propagation
+│   │   └── main.py                    # FastAPI application with probes, metrics & control plane
 │   └── tests/
 │       ├── __init__.py
-│       └── test_api.py                # Unit & integration test suite
+│       ├── test_api.py                # Gateway API unit & integration test suite
+│       └── test_resilience.py         # Fault injection & retry backoff verification tests
 ├── worker/
 │   ├── Dockerfile                     # Multi-stage secure non-root container build
-│   ├── requirements.txt               # Kafka consumer, Triton gRPC, and Prometheus
+│   ├── requirements.txt               # Kafka consumer, Triton gRPC, OTEL, and Prometheus
 │   ├── app/
 │   │   ├── __init__.py
-│   │   ├── config.py                  # Consumer and batching settings
-│   │   └── consumer.py                # Micro-batching Kafka consumer loop
+│   │   ├── config.py                  # Consumer, batching, and telemetry settings
+│   │   ├── telemetry.py               # OpenTelemetry tracer & W3C context extraction
+│   │   └── consumer.py                # Micro-batching Kafka consumer loop with trace spans
 │   └── tests/
 │       ├── __init__.py
-│       └── test_worker.py             # Worker micro-batching unit tests
+│       └── test_worker.py             # Worker micro-batching & context propagation tests
 ├── models/
-│   ├── sentiment_onnx/
+│   ├── sentiment_onnx/                # 128-dim sentiment classification model
 │   │   ├── config.pbtxt               # Triton model configuration (dynamic batching)
-│   │   └── 1/                         # Model version 1 directory
-│   │       └── model.onnx             # Model binary
+│   │   └── 1/model.onnx               # Model binary
+│   ├── fraud_detection_onnx/          # 64-dim high-throughput fraud scoring model
+│   │   ├── config.pbtxt               # Triton dynamic batching configuration
+│   │   └── 1/model.onnx               # Model binary
 │   └── scripts/
-│       └── generate_dummy_model.py    # Generates a valid ONNX model for testing
+│       └── generate_dummy_model.py    # Generates valid ONNX model artifacts for repository
+├── chaos/                             # Chaos Mesh fault-injection experiments
+│   ├── pod-failure-triton.yaml        # Pod termination testing self-healing
+│   ├── network-delay-gateway.yaml     # 200ms latency injection testing canary rollback
+│   ├── network-partition-kafka.yaml   # Kafka broker partition testing ISR quorum
+│   ├── stress-worker-cpu.yaml         # 85% CPU load testing KEDA autoscaling
+│   └── chaos-workflow.yaml            # Composite serial resilience audit workflow
+├── gitops/                            # ArgoCD GitOps continuous delivery
+│   ├── root-application.yaml          # App-of-Apps master bootstrap application
+│   ├── apps/                          # Environment applications (dev, prod, operators)
+│   └── appset/                        # Multi-region ApplicationSet generator
+├── monitoring/
+│   └── dashboards/                    # Curated production Grafana dashboards
+│       ├── kubescale-overview.json    # Platform overview, RPS, P99 latency, replicas
+│       ├── triton-inference.json      # Triton GPU/CPU metrics, dynamic queue duration
+│       └── kafka-streaming.json       # Partition lag, broker throughput, consumer offsets
+├── security/
+│   └── kyverno/                       # Zero-Trust Pod Security Standards ClusterPolicies
+│       ├── disallow-root-user.yaml
+│       ├── require-resource-limits.yaml
+│       ├── disallow-privilege-escalation.yaml
+│       └── disallow-host-path.yaml
 ├── scripts/
 │   ├── setup_local_cluster.sh         # Local hybrid bootstrap (Kind / Minikube)
+│   ├── setup_keda.sh                  # KEDA autoscaling operator installer
+│   ├── setup_monitoring.sh            # Prometheus Operator & Grafana installer
+│   ├── setup_eso.sh                   # External Secrets Operator installer
+│   ├── setup_flagger.sh               # Flagger progressive delivery installer
+│   ├── setup_argocd.sh                # ArgoCD GitOps bootstrap script
+│   ├── setup_kyverno.sh               # Kyverno Zero-Trust policy installer
+│   ├── setup_tracing.sh               # OpenTelemetry & Jaeger tracing installer
+│   ├── setup_chaos_mesh.sh            # Chaos Mesh operator installer
+│   ├── demo_model_control.sh          # Triton live reload & control plane demo
+│   ├── demo_tracing.sh                # OpenTelemetry distributed tracing demo
+│   ├── run_chaos_experiments.sh       # Automated chaos suite & self-healing verification
 │   └── load_test.py                   # High-throughput load generator for HPA verification
-├── Makefile                           # Unified automation CLI
+├── Makefile                           # Unified automation CLI (test, build, chaos, demo)
+├── pytest.ini                         # Pytest configuration with importlib mode
 ├── .gitignore
 ├── .dockerignore
 └── README.md
@@ -577,6 +645,8 @@ kubectl port-forward svc/kubescale-jaeger 16686:16686 -n kubescale
 make tracing-demo
 
 # 4. Open browser at http://localhost:16686 to explore latency waterfalls
+```
+
 ---
 
 ## 15. Chaos Engineering & Fault-Injection Resilience Suite (Chaos Mesh)
