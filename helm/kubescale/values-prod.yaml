@@ -74,6 +74,8 @@ inference:
   command:
     - "tritonserver"
     - "--model-repository=s3://kubescale-ai-model-repository"
+    - "--model-control-mode=explicit"
+    - "--load-model=sentiment_onnx"
     - "--strict-model-config=true"
     - "--exit-on-error=true"
     - "--log-verbose=0"

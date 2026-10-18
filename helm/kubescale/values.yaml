@@ -122,6 +122,8 @@ inference:
   command:
     - "tritonserver"
     - "--model-repository=/models"
+    - "--model-control-mode=explicit"
+    - "--load-model=sentiment_onnx"
     - "--strict-model-config=false"
     - "--exit-on-error=false"
     - "--log-verbose=0"

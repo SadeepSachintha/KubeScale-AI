@@ -502,7 +502,41 @@ kubectl get policyreport -A
 
 ---
 
-## 13. Continuous Integration & Quality Assurance
+## 13. Dynamic Multi-Model Serving & Triton Live Reload
+
+In enterprise ML architectures, restarting inference pods to roll out new model weights causes severe cache thrashing, in-flight inference drops, and cold-start latency spikes. KubeScale AI configures Triton Inference Server in **Explicit Model Control Mode** (`--model-control-mode=explicit`) and exposes a dedicated **Control Plane API** via the Gateway:
+
+* **Zero-Downtime Hot Reloading:** Models are dynamically loaded into or unloaded from Triton runtime memory without bouncing pods or disrupting active inference streams.
+* **Multi-Tenant Model Hosting:** A single Triton compute pool serves multiple heterogeneous models simultaneously (`sentiment_onnx` and `fraud_detection_onnx`), maximizing hardware utilization and cutting compute costs.
+* **Memory Reclamation:** Infrequently invoked models can be unloaded on-demand via the Control Plane API to release CPU/GPU memory back to the cluster.
+
+### Control Plane REST Endpoints
+
+| Method | Endpoint | Description |
+|:---|:---|:---|
+| `GET` | `/v1/repository/index` | Discovers all registered models in the repository and their runtime states (`READY`, `UNAVAILABLE`) |
+| `POST` | `/v1/repository/models/{model_name}/load` | Dynamically loads or reloads model weights into Triton runtime memory |
+| `POST` | `/v1/repository/models/{model_name}/unload` | Evicts a model from Triton runtime memory to reclaim host memory/compute |
+| `GET` | `/v1/models/{model_name}/metadata` | Returns tensor input/output shapes, datatypes, and runtime backend (`onnxruntime_onnx`) |
+| `GET` | `/v1/models/{model_name}/status` | Checks real-time model readiness status |
+
+```bash
+# 1. Inspect repository catalog
+curl -s http://localhost:8000/v1/repository/index | jq .
+
+# 2. Dynamically load fraud detection model without restarting Triton pods
+curl -s -X POST http://localhost:8000/v1/repository/models/fraud_detection_onnx/load | jq .
+
+# 3. Query architecture & tensor specifications
+curl -s http://localhost:8000/v1/models/fraud_detection_onnx/metadata | jq .
+
+# 4. Run interactive dynamic model control demonstration
+make model-control-demo
+```
+
+---
+
+## 14. Continuous Integration & Quality Assurance
 
 | Pipeline | Trigger | Checks Executed |
 |:---|:---|:---|
@@ -520,9 +554,10 @@ make test
 
 ---
 
-## 14. License
+## 15. License
 
 This project is licensed under the Apache 2.0 License.
+
 
 
 

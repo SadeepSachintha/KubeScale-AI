@@ -9,22 +9,20 @@ Output: [batch, 2] FP32
 import os
 import sys
 
-def generate_model(output_path: str):
+def generate_model(output_path: str, model_name: str = "sentiment_classifier", feature_dim: int = 128, num_classes: int = 2):
     try:
         import onnx
         from onnx import helper, TensorProto
         import numpy as np
     except ImportError:
-        print("[INFO] ONNX library not found. Creating placeholder model marker.")
+        print(f"[INFO] ONNX library not found. Creating placeholder model marker for {model_name}.")
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         with open(output_path, "wb") as f:
-            f.write(b"ONNX_PLACEHOLDER_FOR_TRITON_TESTING")
+            f.write(f"ONNX_PLACEHOLDER_{model_name.upper()}".encode("utf-8"))
         print(f"[OK] Created placeholder at {output_path}")
         return
 
-    print(f"[INFO] Generating ONNX sentiment model at {output_path}...")
-    feature_dim = 128
-    num_classes = 2
+    print(f"[INFO] Generating ONNX model '{model_name}' (dim={feature_dim}) at {output_path}...")
 
     # Weights and Biases
     w_val = np.random.randn(feature_dim, num_classes).astype(np.float32) * 0.1
@@ -46,7 +44,7 @@ def generate_model(output_path: str):
     # Graph
     graph = helper.make_graph(
         [matmul_node, add_node, softmax_node],
-        "sentiment_classifier",
+        model_name,
         [input_tensor],
         [output_tensor],
         [w_init, b_init],
@@ -55,11 +53,17 @@ def generate_model(output_path: str):
     model = helper.make_model(graph, producer_name="kubescale-ai")
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     onnx.save(model, output_path)
-    print(f"[SUCCESS] ONNX model saved to {output_path}")
+    print(f"[SUCCESS] ONNX model '{model_name}' saved to {output_path}")
 
 
 if __name__ == "__main__":
-    target = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
-        os.path.dirname(__file__), "..", "sentiment_onnx", "1", "model.onnx"
-    )
-    generate_model(target)
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    
+    # Generate sentiment_onnx
+    sentiment_path = os.path.join(base_dir, "sentiment_onnx", "1", "model.onnx")
+    generate_model(sentiment_path, "sentiment_onnx", feature_dim=128, num_classes=2)
+    
+    # Generate fraud_detection_onnx
+    fraud_path = os.path.join(base_dir, "fraud_detection_onnx", "1", "model.onnx")
+    generate_model(fraud_path, "fraud_detection_onnx", feature_dim=64, num_classes=2)
+

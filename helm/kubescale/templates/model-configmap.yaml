@@ -38,4 +38,38 @@ data:
         kind: KIND_CPU
       }
     ]
+
+  fraud_config.pbtxt: |
+    name: "fraud_detection_onnx"
+    platform: "onnxruntime_onnx"
+    max_batch_size: 128
+
+    input [
+      {
+        name: "INPUT_0"
+        data_type: TYPE_FP32
+        dims: [ -1 ]
+      }
+    ]
+
+    output [
+      {
+        name: "OUTPUT_0"
+        data_type: TYPE_FP32
+        dims: [ 2 ]
+      }
+    ]
+
+    dynamic_batching {
+      preferred_batch_size: [ 8, 16, 32, 64, 128 ]
+      max_queue_delay_microseconds: 2000
+    }
+
+    instance_group [
+      {
+        count: 2
+        kind: KIND_CPU
+      }
+    ]
 {{- end }}
+

@@ -15,6 +15,10 @@ from app.schemas import (
     HealthStatus,
     InferenceRequest,
     InferenceResponse,
+    ModelControlResponse,
+    ModelMetadataResponse,
+    ModelRepositoryItem,
+    ModelRepositoryResponse,
 )
 from app.triton_client import triton_client
 
@@ -51,6 +55,11 @@ KAFKA_PUBLISH_COUNT = Counter(
     "kubescale_kafka_events_published_total",
     "Total asynchronous events published to Strimzi Kafka",
     ["topic", "status"],
+)
+MODEL_CONTROL_COUNT = Counter(
+    "kubescale_model_control_actions_total",
+    "Total dynamic model control actions executed against Triton server",
+    ["action", "model_name", "status"],
 )
 
 START_TIME = time.time()
@@ -186,6 +195,7 @@ async def root():
         "health_endpoint": "/healthz",
         "ready_endpoint": "/readyz",
         "metrics_endpoint": "/metrics",
+        "repository_endpoint": "/v1/repository/index",
     }
 
 
@@ -303,3 +313,117 @@ async def model_status(model_name: str, version: Optional[str] = "1"):
         "version": version,
         "ready": is_ready,
     }
+
+
+# ------------------------------------------------------------------------------
+# Model Control & Dynamic Repository Endpoints (Zero-Downtime Hot-Reload)
+# ------------------------------------------------------------------------------
+@app.get(
+    "/v1/repository/index",
+    response_model=ModelRepositoryResponse,
+    tags=["Model Control Plane"],
+)
+async def get_repository_index():
+    """
+    Triton Model Repository Index:
+    Lists all models available in the shared model repository, their active version,
+    and their operational state (READY vs UNAVAILABLE).
+    """
+    try:
+        models_data = triton_client.get_model_repository_index()
+        return ModelRepositoryResponse(
+            models=[ModelRepositoryItem(**m) for m in models_data],
+            total_models=len(models_data),
+            control_mode="explicit",
+        )
+    except Exception as e:
+        logger.error("Failed to query model repository index: %s", str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch model repository index: {str(e)}",
+        )
+
+
+@app.post(
+    "/v1/repository/models/{model_name}/load",
+    response_model=ModelControlResponse,
+    tags=["Model Control Plane"],
+)
+async def load_model(model_name: str):
+    """
+    Explicit Model Loading & Zero-Downtime Hot Reload:
+    Dynamically loads or reloads model weights into Triton runtime memory
+    without dropping in-flight traffic or restarting worker pods.
+    """
+    try:
+        res = triton_client.load_model(model_name=model_name)
+        MODEL_CONTROL_COUNT.labels(action="load", model_name=model_name, status="success").inc()
+        return ModelControlResponse(**res)
+    except Exception as e:
+        MODEL_CONTROL_COUNT.labels(action="load", model_name=model_name, status="error").inc()
+        logger.error("Failed to dynamically load model '%s': %s", model_name, str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to dynamically load model '{model_name}': {str(e)}",
+        )
+
+
+@app.post(
+    "/v1/repository/models/{model_name}/unload",
+    response_model=ModelControlResponse,
+    tags=["Model Control Plane"],
+)
+async def unload_model(model_name: str):
+    """
+    Explicit Model Unloading:
+    Evicts an inactive model from Triton runtime memory to reclaim GPU/CPU resources.
+    """
+    try:
+        res = triton_client.unload_model(model_name=model_name)
+        MODEL_CONTROL_COUNT.labels(action="unload", model_name=model_name, status="success").inc()
+        return ModelControlResponse(**res)
+    except KeyError:
+        MODEL_CONTROL_COUNT.labels(action="unload", model_name=model_name, status="not_found").inc()
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Model '{model_name}' not found in model repository.",
+        )
+    except Exception as e:
+        MODEL_CONTROL_COUNT.labels(action="unload", model_name=model_name, status="error").inc()
+        logger.error("Failed to unload model '%s': %s", model_name, str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to unload model '{model_name}': {str(e)}",
+        )
+
+
+@app.get(
+    "/v1/models/{model_name}/metadata",
+    response_model=ModelMetadataResponse,
+    tags=["Model Control Plane"],
+)
+async def get_model_metadata(model_name: str, version: Optional[str] = "1"):
+    """
+    Model Architectural Metadata:
+    Inspect input/output tensor shapes, datatypes, and runtime backend for a loaded model.
+    """
+    try:
+        meta = triton_client.get_model_metadata(model_name=model_name, model_version=version)
+        return ModelMetadataResponse(**meta)
+    except KeyError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Model '{model_name}' not registered in repository.",
+        )
+    except RuntimeError as re:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(re),
+        )
+    except Exception as e:
+        logger.error("Failed to fetch metadata for model '%s': %s", model_name, str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve model metadata: {str(e)}",
+        )
+

@@ -96,3 +96,54 @@ class HealthStatus(BaseModel):
     kafka_connected: bool
     version: str
     uptime_seconds: float
+
+
+class ModelRepositoryItem(BaseModel):
+    """
+    Model entry in Triton's repository catalog.
+    """
+    name: str = Field(..., description="Unique model identifier in repository")
+    version: str = Field(default="1", description="Model version string")
+    state: str = Field(..., description="Triton model state: READY, UNAVAILABLE, LOADING, or UNLOADING")
+    reason: Optional[str] = Field(default="", description="Diagnostic message or state reasoning")
+
+
+class ModelRepositoryResponse(BaseModel):
+    """
+    Repository index catalog response.
+    """
+    models: List[ModelRepositoryItem] = Field(default_factory=list)
+    total_models: int = Field(default=0)
+    control_mode: str = Field(default="explicit", description="Triton control mode: explicit, poll, or none")
+
+
+class ModelControlResponse(BaseModel):
+    """
+    Action result for explicit model loading or unloading in Triton.
+    """
+    model_name: str
+    action: str = Field(..., description="Action attempted: LOAD or UNLOAD")
+    status: str = Field(..., description="Action outcome: SUCCESS or FAILED")
+    message: str
+    timestamp: float = Field(default_factory=time.time)
+
+
+class ModelTensorSpec(BaseModel):
+    """
+    Specification of an input or output tensor.
+    """
+    name: str
+    datatype: str
+    shape: List[int]
+
+
+class ModelMetadataResponse(BaseModel):
+    """
+    Triton model architecture and IO tensor metadata.
+    """
+    name: str
+    versions: List[str]
+    platform: str
+    inputs: List[ModelTensorSpec]
+    outputs: List[ModelTensorSpec]
+

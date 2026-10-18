@@ -65,6 +65,9 @@ spec:
             - name: model-config-volume
               mountPath: /models/sentiment_onnx/config.pbtxt
               subPath: config.pbtxt
+            - name: model-config-volume
+              mountPath: /models/fraud_detection_onnx/config.pbtxt
+              subPath: fraud_config.pbtxt
             {{- end }}
       volumes:
         {{- if eq .Values.inference.modelStorage.type "configMap" }}

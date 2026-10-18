@@ -30,6 +30,25 @@ class TritonGrpcClient:
         self._client: Optional[grpcclient.InferenceServerClient] = None
         self._is_connected = False
         self._model_metadata_cache: Dict[str, dict] = {}
+        # In-memory mock repository state for offline/testing/dev modes
+        self._mock_repository: Dict[str, Dict[str, Any]] = {
+            "sentiment_onnx": {
+                "version": "1",
+                "state": "READY",
+                "reason": "",
+                "platform": "onnxruntime_onnx",
+                "inputs": [{"name": "INPUT_0", "datatype": "FP32", "shape": [-1, 128]}],
+                "outputs": [{"name": "OUTPUT_0", "datatype": "FP32", "shape": [-1, 2]}],
+            },
+            "fraud_detection_onnx": {
+                "version": "1",
+                "state": "UNAVAILABLE",  # Not loaded initially; ready to be loaded via explicit control!
+                "reason": "Explicit control mode - model unallocated",
+                "platform": "onnxruntime_onnx",
+                "inputs": [{"name": "INPUT_0", "datatype": "FP32", "shape": [-1, 64]}],
+                "outputs": [{"name": "OUTPUT_0", "datatype": "FP32", "shape": [-1, 2]}],
+            },
+        }
 
     def get_client(self) -> Optional[grpcclient.InferenceServerClient]:
         """Lazy-initialize or return existing Triton gRPC client instance."""
@@ -68,13 +87,155 @@ class TritonGrpcClient:
     def is_model_ready(self, model_name: str, model_version: str = "1") -> bool:
         """Verify if a specific model and version are loaded and ready in Triton."""
         client = self.get_client()
-        if client is None:
+        if client is not None and self.is_healthy():
+            try:
+                return client.is_model_ready(model_name=model_name, model_version=model_version)
+            except Exception as e:
+                logger.debug("Model %s ready check failed: %s", model_name, str(e))
+                return False
+
+        # Fallback simulation check against mock repository
+        model_info = self._mock_repository.get(model_name)
+        if not model_info:
             return False
-        try:
-            return client.is_model_ready(model_name=model_name, model_version=model_version)
-        except Exception as e:
-            logger.debug("Model %s ready check failed: %s", model_name, str(e))
-            return False
+        return model_info.get("state") == "READY"
+
+    def get_model_repository_index(self) -> List[Dict[str, Any]]:
+        """
+        Query Triton model repository index to inspect loaded and available models.
+        """
+        client = self.get_client()
+        if client is not None and self.is_healthy():
+            try:
+                res = client.get_model_repository_index()
+                results = []
+                for m in getattr(res, "models", []):
+                    results.append({
+                        "name": m.name,
+                        "version": getattr(m, "version", "1"),
+                        "state": getattr(m, "state", "READY"),
+                        "reason": getattr(m, "reason", ""),
+                    })
+                return results
+            except Exception as e:
+                logger.error("Failed to query Triton model repository index: %s", str(e))
+                raise
+
+        # Mock fallback simulation
+        return [
+            {
+                "name": name,
+                "version": meta.get("version", "1"),
+                "state": meta.get("state", "READY"),
+                "reason": meta.get("reason", ""),
+            }
+            for name, meta in self._mock_repository.items()
+        ]
+
+    def load_model(self, model_name: str) -> Dict[str, Any]:
+        """
+        Dynamically load a model into Triton runtime memory without restarting the cluster.
+        """
+        client = self.get_client()
+        if client is not None and self.is_healthy():
+            try:
+                client.load_model(model_name=model_name)
+                logger.info("Successfully loaded model '%s' via Triton Model Control API", model_name)
+                return {
+                    "model_name": model_name,
+                    "action": "LOAD",
+                    "status": "SUCCESS",
+                    "message": f"Model '{model_name}' successfully loaded into Triton runtime.",
+                }
+            except Exception as e:
+                logger.error("Failed to load model '%s' via Triton gRPC: %s", model_name, str(e))
+                raise
+
+        # Mock fallback simulation
+        if model_name in self._mock_repository:
+            self._mock_repository[model_name]["state"] = "READY"
+            self._mock_repository[model_name]["reason"] = ""
+        else:
+            self._mock_repository[model_name] = {
+                "version": "1",
+                "state": "READY",
+                "reason": "",
+                "platform": "onnxruntime_onnx",
+                "inputs": [{"name": "INPUT_0", "datatype": "FP32", "shape": [-1, 64]}],
+                "outputs": [{"name": "OUTPUT_0", "datatype": "FP32", "shape": [-1, 2]}],
+            }
+        return {
+            "model_name": model_name,
+            "action": "LOAD",
+            "status": "SUCCESS",
+            "message": f"Model '{model_name}' successfully loaded into Triton runtime (dynamic reload).",
+        }
+
+    def unload_model(self, model_name: str) -> Dict[str, Any]:
+        """
+        Dynamically unload a model from Triton runtime memory to reclaim GPU/CPU resources.
+        """
+        client = self.get_client()
+        if client is not None and self.is_healthy():
+            try:
+                client.unload_model(model_name=model_name)
+                logger.info("Successfully unloaded model '%s' via Triton Model Control API", model_name)
+                return {
+                    "model_name": model_name,
+                    "action": "UNLOAD",
+                    "status": "SUCCESS",
+                    "message": f"Model '{model_name}' successfully unloaded from Triton runtime.",
+                }
+            except Exception as e:
+                logger.error("Failed to unload model '%s' via Triton gRPC: %s", model_name, str(e))
+                raise
+
+        # Mock fallback simulation
+        if model_name not in self._mock_repository:
+            raise KeyError(f"Model '{model_name}' does not exist in Triton repository.")
+        self._mock_repository[model_name]["state"] = "UNAVAILABLE"
+        self._mock_repository[model_name]["reason"] = "Model unloaded via Model Control API"
+        return {
+            "model_name": model_name,
+            "action": "UNLOAD",
+            "status": "SUCCESS",
+            "message": f"Model '{model_name}' successfully unloaded from Triton runtime.",
+        }
+
+    def get_model_metadata(self, model_name: str, model_version: str = "1") -> Dict[str, Any]:
+        """
+        Fetch input/output tensor specifications and platform metadata for a loaded model.
+        """
+        client = self.get_client()
+        if client is not None and self.is_healthy():
+            try:
+                meta = client.get_model_metadata(model_name=model_name, model_version=model_version)
+                inputs = [{"name": i.name, "datatype": i.datatype, "shape": list(i.shape)} for i in meta.inputs]
+                outputs = [{"name": o.name, "datatype": o.datatype, "shape": list(o.shape)} for o in meta.outputs]
+                return {
+                    "name": meta.name,
+                    "versions": list(meta.versions) if hasattr(meta, "versions") else [model_version],
+                    "platform": getattr(meta, "platform", "onnxruntime_onnx"),
+                    "inputs": inputs,
+                    "outputs": outputs,
+                }
+            except Exception as e:
+                logger.error("Failed to fetch metadata for model '%s': %s", model_name, str(e))
+                raise
+
+        # Mock fallback simulation
+        if model_name not in self._mock_repository:
+            raise KeyError(f"Model '{model_name}' not found in Triton repository.")
+        entry = self._mock_repository[model_name]
+        if entry.get("state") != "READY":
+            raise RuntimeError(f"Model '{model_name}' is not ready in Triton runtime (state: {entry.get('state')}).")
+        return {
+            "name": model_name,
+            "versions": [entry.get("version", "1")],
+            "platform": entry.get("platform", "onnxruntime_onnx"),
+            "inputs": entry.get("inputs", []),
+            "outputs": entry.get("outputs", []),
+        }
 
     async def infer(
         self,
@@ -119,6 +280,11 @@ class TritonGrpcClient:
                 "Triton is unreachable at %s. Executing deterministic fallback simulation.",
                 self.url,
             )
+            if not self.is_model_ready(model_name, model_version):
+                raise RuntimeError(
+                    f"Model '{model_name}' (version {model_version}) is UNAVAILABLE or not loaded in Triton runtime. "
+                    f"Load it first using POST /v1/repository/models/{model_name}/load"
+                )
             return self._mock_inference(input_data, start_time)
 
         try:
