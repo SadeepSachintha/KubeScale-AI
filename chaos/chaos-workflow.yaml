@@ -1,0 +1,76 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: Workflow
+metadata:
+  name: kubescale-resilience-audit
+  namespace: kubescale
+  labels:
+    app.kubernetes.io/part-of: kubescale-ai
+    app.kubernetes.io/component: chaos-workflow
+spec:
+  entry: entry
+  templates:
+    - name: entry
+      templateType: Serial
+      children:
+        - step-triton-failure
+        - step-gateway-delay
+        - step-kafka-partition
+        - step-worker-stress
+
+    # Step 1: Terminate a Triton inference pod during traffic
+    - name: step-triton-failure
+      templateType: PodChaos
+      podChaos:
+        action: pod-kill
+        mode: one
+        selector:
+          namespaces:
+            - kubescale
+          labelSelectors:
+            app.kubernetes.io/component: inference
+
+    # Step 2: Inject 200ms latency on Gateway
+    - name: step-gateway-delay
+      templateType: NetworkChaos
+      networkChaos:
+        action: delay
+        mode: all
+        selector:
+          namespaces:
+            - kubescale
+          labelSelectors:
+            app.kubernetes.io/component: gateway
+        delay:
+          latency: "200ms"
+          jitter: "20ms"
+        duration: "45s"
+
+    # Step 3: Partition a Kafka broker pod
+    - name: step-kafka-partition
+      templateType: NetworkChaos
+      networkChaos:
+        action: partition
+        mode: one
+        selector:
+          namespaces:
+            - kubescale
+          labelSelectors:
+            strimzi.io/cluster: kubescale-kafka
+        direction: both
+        duration: "60s"
+
+    # Step 4: CPU Stress on consumer workers to trigger HPA/KEDA scale-out
+    - name: step-worker-stress
+      templateType: StressChaos
+      stressChaos:
+        mode: all
+        selector:
+          namespaces:
+            - kubescale
+          labelSelectors:
+            app.kubernetes.io/component: worker
+        stressors:
+          cpu:
+            workers: 2
+            load: 85
+        duration: "60s"

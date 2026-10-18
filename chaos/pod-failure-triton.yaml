@@ -1,0 +1,19 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: triton-pod-failure
+  namespace: kubescale
+  labels:
+    app.kubernetes.io/part-of: kubescale-ai
+    app.kubernetes.io/component: chaos-test
+spec:
+  action: pod-failure
+  mode: one
+  duration: "30s"
+  selector:
+    namespaces:
+      - kubescale
+    labelSelectors:
+      app.kubernetes.io/component: inference
+  scheduler:
+    cron: "@every 5m"

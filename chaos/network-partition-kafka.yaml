@@ -1,0 +1,18 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: kafka-broker-partition
+  namespace: kubescale
+  labels:
+    app.kubernetes.io/part-of: kubescale-ai
+    app.kubernetes.io/component: chaos-test
+spec:
+  action: partition
+  mode: one
+  selector:
+    namespaces:
+      - kubescale
+    labelSelectors:
+      strimzi.io/cluster: kubescale-kafka
+  direction: both
+  duration: "90s"

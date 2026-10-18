@@ -287,38 +287,51 @@ class TritonGrpcClient:
                 )
             return self._mock_inference(input_data, start_time)
 
-        try:
-            # Prepare input numpy array (FP32)
-            np_input = np.array(input_data, dtype=np.float32)
+        last_error = None
+        for attempt in range(1, settings.TRITON_RETRY_ATTEMPTS + 1):
+            try:
+                # Prepare input numpy array (FP32)
+                np_input = np.array(input_data, dtype=np.float32)
 
-            infer_input = grpcclient.InferInput(
-                name=input_tensor_name,
-                shape=list(np_input.shape),
-                datatype="FP32",
-            )
-            infer_input.set_data_from_numpy(np_input)
+                infer_input = grpcclient.InferInput(
+                    name=input_tensor_name,
+                    shape=list(np_input.shape),
+                    datatype="FP32",
+                )
+                infer_input.set_data_from_numpy(np_input)
 
-            requested_output = grpcclient.InferRequestedOutput(name=output_tensor_name)
+                requested_output = grpcclient.InferRequestedOutput(name=output_tensor_name)
 
-            response = client.infer(
-                model_name=model_name,
-                model_version=model_version,
-                inputs=[infer_input],
-                outputs=[requested_output],
-                client_timeout=settings.TRITON_TIMEOUT_SECONDS,
-            )
+                response = client.infer(
+                    model_name=model_name,
+                    model_version=model_version,
+                    inputs=[infer_input],
+                    outputs=[requested_output],
+                    client_timeout=settings.TRITON_TIMEOUT_SECONDS,
+                )
 
-            result_array = response.as_numpy(output_tensor_name)
-            latency_ms = (time.perf_counter() - start_time) * 1000.0
+                result_array = response.as_numpy(output_tensor_name)
+                latency_ms = (time.perf_counter() - start_time) * 1000.0
 
-            if result_array is None:
-                raise RuntimeError("Empty response received from Triton inference server")
+                if result_array is None:
+                    raise RuntimeError("Empty response received from Triton inference server")
 
-            return result_array.tolist(), latency_ms
+                return result_array.tolist(), latency_ms
 
-        except Exception as e:
-            logger.error("gRPC inference failed for model '%s': %s", model_name, str(e))
-            raise
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    "Triton gRPC attempt %d/%d failed for model '%s': %s",
+                    attempt,
+                    settings.TRITON_RETRY_ATTEMPTS,
+                    model_name,
+                    str(e),
+                )
+                if attempt < settings.TRITON_RETRY_ATTEMPTS:
+                    time.sleep(0.05 * (2 ** (attempt - 1)))
+                else:
+                    logger.error("All %d gRPC inference attempts exhausted for model '%s'", settings.TRITON_RETRY_ATTEMPTS, model_name)
+                    raise last_error
 
     def _mock_inference(
         self, input_data: List[List[float]], start_time: float

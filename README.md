@@ -577,11 +577,34 @@ kubectl port-forward svc/kubescale-jaeger 16686:16686 -n kubescale
 make tracing-demo
 
 # 4. Open browser at http://localhost:16686 to explore latency waterfalls
+---
+
+## 15. Chaos Engineering & Fault-Injection Resilience Suite (Chaos Mesh)
+
+To guarantee that KubeScale AI survives real-world datacenter and cloud failures without human intervention, the platform integrates declarative **Chaos Mesh (`chaos-mesh.org`)** fault-injection experiments:
+
+| Chaos Scenario | Target Workload | Injection Method | Expected Resilience Behavior |
+|:---|:---|:---|:---|
+| **Triton Pod Failure** (`chaos/pod-failure-triton.yaml`) | `app=inference` | `PodChaos` (pod-failure) | Zero dropped requests; Kubernetes routes around failing pod; Gateway client executes exponential retry backoff |
+| **Gateway Latency Spike** (`chaos/network-delay-gateway.yaml`) | `app=gateway` | `NetworkChaos` (200ms delay, 20ms jitter) | P99 latency alert fires; Flagger halts and rolls back canary deployments automatically |
+| **Kafka Broker Partition** (`chaos/network-partition-kafka.yaml`) | `strimzi.io/cluster=kubescale-kafka` | `NetworkChaos` (isolated broker partition) | 3-node Strimzi cluster maintains ISR quorum; consumer workers rebalance partitions without data loss |
+| **Worker CPU Saturation** (`chaos/stress-worker-cpu.yaml`) | `app=worker` | `StressChaos` (85% CPU load across 2 threads) | KEDA / HPA detects CPU threshold breach and auto-scales worker pods from 2 to 10 replicas |
+| **End-to-End Resilience Audit** (`chaos/chaos-workflow.yaml`) | Full Cluster | Composite `Workflow` | Executes all 4 experiments sequentially under live synthetic traffic |
+
+```bash
+# 1. Install Chaos Mesh operator
+make chaos-install
+
+# 2. Forward Chaos Mesh Dashboard to localhost:2333
+kubectl port-forward svc/chaos-dashboard 2333:2333 -n chaos-mesh
+
+# 3. Execute automated fault-injection suite and evaluate self-healing
+make chaos-run
 ```
 
 ---
 
-## 15. Continuous Integration & Quality Assurance
+## 16. Continuous Integration & Quality Assurance
 
 | Pipeline | Trigger | Checks Executed |
 |:---|:---|:---|
@@ -599,9 +622,10 @@ make test
 
 ---
 
-## 16. License
+## 17. License
 
 This project is licensed under the Apache 2.0 License.
+
 
 
 

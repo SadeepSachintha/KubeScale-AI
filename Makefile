@@ -120,6 +120,14 @@ tracing-demo: ## Run live demonstration of distributed tracing with W3C context 
 	@echo "--> Running OpenTelemetry distributed tracing demonstration..."
 	./scripts/demo_tracing.sh
 
+chaos-install: ## Install Chaos Mesh Operator for fault injection and resilience testing
+	@echo "--> Installing Chaos Mesh Operator..."
+	./scripts/setup_chaos_mesh.sh
+
+chaos-run: ## Execute automated Chaos Mesh fault-injection experiments and verify self-healing
+	@echo "--> Running Chaos Mesh resilience experiments..."
+	./scripts/run_chaos_experiments.sh
+
 load-test: ## Run concurrent load testing script against local gateway
 	@echo "--> Launching concurrent load generator..."
 	python3 ./scripts/load_test.py --url http://localhost:8000/v1/models/sentiment_onnx/predict --requests 500 --concurrency 25

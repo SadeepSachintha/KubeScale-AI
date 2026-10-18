@@ -1,0 +1,22 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: gateway-network-delay
+  namespace: kubescale
+  labels:
+    app.kubernetes.io/part-of: kubescale-ai
+    app.kubernetes.io/component: chaos-test
+spec:
+  action: delay
+  mode: all
+  selector:
+    namespaces:
+      - kubescale
+    labelSelectors:
+      app.kubernetes.io/component: gateway
+  delay:
+    latency: "200ms"
+    jitter: "20ms"
+    correlation: "50"
+  duration: "60s"
+  direction: to
