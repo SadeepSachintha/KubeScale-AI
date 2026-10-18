@@ -445,7 +445,44 @@ kubectl describe canary kubescale-gateway -n kubescale
 
 ---
 
-## 11. Continuous Integration & Quality Assurance
+## 11. GitOps Continuous Delivery (ArgoCD)
+
+To resolve **Infrastructure Drift** and establish Git as the single source of truth, KubeScale AI implements the **ArgoCD App-of-Apps** pattern (`gitops/`):
+
+```
+                     ┌──────────────────────────────┐
+                     │     Git Repository (main)    │
+                     └──────────────┬───────────────┘
+                                    │
+                                    ▼
+                     ┌──────────────────────────────┐
+                     │    ArgoCD Root Application   │
+                     │  (gitops/root-application)   │
+                     └──────────────┬───────────────┘
+                                    │
+       ┌────────────────────────────┼────────────────────────────┐
+       ▼                            ▼                            ▼
+┌──────────────┐             ┌──────────────┐             ┌──────────────┐
+│ kubescale-dev│             │kubescale-prod│             │ Core Addons  │
+│ (values.yaml)│             │(values-prod) │             │(KEDA/ESO/Prom│
+└──────────────┘             └──────────────┘             └──────────────┘
+```
+
+* **Automated Drift Detection & Self-Healing:** Any manual alterations in the cluster (`kubectl edit`, accidental resource deletion) are automatically reconciled back to the committed Git state.
+* **Multi-Cluster Propagation:** Uses `gitops/appset/kubescale-regions-appset.yaml` (`ApplicationSet`) to fan out deployments across multiple AWS regions and edge clusters.
+
+```bash
+# 1. Install ArgoCD and bootstrap GitOps Root Application
+make argocd-install
+
+# 2. Forward ArgoCD Web UI to localhost:8080
+kubectl port-forward svc/argocd-server -n argocd 8080:443
+# URL: https://localhost:8080 (User: admin)
+```
+
+---
+
+## 12. Continuous Integration & Quality Assurance
 
 | Pipeline | Trigger | Checks Executed |
 |:---|:---|:---|
@@ -463,8 +500,9 @@ make test
 
 ---
 
-## 12. License
+## 13. License
 
 This project is licensed under the Apache 2.0 License.
+
 
 

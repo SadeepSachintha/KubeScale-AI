@@ -96,6 +96,11 @@ flagger-install: ## Install Flagger Progressive Delivery Controller for Canary D
 	@echo "--> Installing Flagger Controller..."
 	./scripts/setup_flagger.sh
 
+argocd-install: ## Install ArgoCD GitOps engine and apply App-of-Apps root application
+	@echo "--> Installing ArgoCD and applying GitOps root application..."
+	./scripts/setup_argocd.sh
+
+
 
 
 

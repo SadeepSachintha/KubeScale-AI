@@ -1,0 +1,46 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: kubescale-multi-region
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: kubescale-appset
+spec:
+  generators:
+    - list:
+        elements:
+          - clusterName: in-cluster
+            server: https://kubernetes.default.svc
+            region: us-east-1
+            environment: prod
+            valueFile: values-prod.yaml
+          - clusterName: eks-us-west-2
+            server: https://eks-us-west-2.amazonaws.com
+            region: us-west-2
+            environment: prod-failover
+            valueFile: values-prod.yaml
+  template:
+    metadata:
+      name: "kubescale-{{region}}-{{environment}}"
+      labels:
+        environment: "{{environment}}"
+        region: "{{region}}"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/SadeepSachintha/KubeScale-AI.git
+        targetRevision: HEAD
+        path: helm/kubescale
+        helm:
+          valueFiles:
+            - values.yaml
+            - "{{valueFile}}"
+      destination:
+        server: "{{server}}"
+        namespace: "kubescale-{{environment}}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
