@@ -315,6 +315,33 @@ security:
     enabled: true
     validationFailureAction: "Audit"
 
+# ------------------------------------------------------------------------------
+# OpenTelemetry Distributed Tracing & APM (Jaeger / Tempo Backend)
+# ------------------------------------------------------------------------------
+tracing:
+  enabled: true
+  samplingRatio: 1.0
+  otlpEndpoint: "http://kubescale-jaeger:4317"
+  jaeger:
+    enabled: true
+    image:
+      repository: jaegertracing/all-in-one
+      tag: "1.57"
+      pullPolicy: IfNotPresent
+    service:
+      type: ClusterIP
+      otlpGrpcPort: 4317
+      otlpHttpPort: 4318
+      uiPort: 16686
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+
 
 
 

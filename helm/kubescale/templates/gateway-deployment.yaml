@@ -43,6 +43,9 @@ spec:
             - name: http
               containerPort: {{ .Values.gateway.service.port }}
               protocol: TCP
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: "kubescale-gateway"
           envFrom:
             - configMapRef:
                 name: {{ include "kubescale.fullname" . }}-config

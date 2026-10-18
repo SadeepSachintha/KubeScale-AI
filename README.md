@@ -536,7 +536,52 @@ make model-control-demo
 
 ---
 
-## 14. Continuous Integration & Quality Assurance
+## 14. OpenTelemetry Distributed Tracing & APM
+
+To diagnose microsecond bottlenecks, network serialization overhead, and cross-service message lineage, KubeScale AI implements end-to-end **OpenTelemetry (`opentelemetry.io`)** distributed tracing with standard **W3C TraceContext (`traceparent`, `tracestate`)** propagation:
+
+```
+[Client]
+   │
+   ▼ (HTTP Request)
+[FastAPI Gateway] ─── span: gateway.predict_sync
+   │                   │
+   │ (gRPC :8001)      ▼ span: triton.grpc_infer
+   ├───► [Triton Inference Server]
+   │
+   ▼ (Async Kafka Produce - injects W3C traceparent header)
+[Strimzi Kafka Cluster (Topic: inference-requests)]
+   │
+   ▼ (Consumer Micro-Batch - extracts W3C traceparent context)
+[Async Worker] ────── span: worker.process_micro_batch (parented to Gateway trace!)
+   │                   │
+   │ (Batched gRPC)    ▼ span: worker.triton_batch_infer
+   └───► [Triton Inference Server]
+```
+
+### Key Capabilities
+
+* **Asynchronous Trace Continuity:** The FastAPI Gateway injects W3C `traceparent` headers into Kafka event metadata. The Kafka Consumer Worker extracts this context upon batch polling, guaranteeing that asynchronous batch inference jobs maintain unbroken trace ancestry back to the original client request.
+* **Granular Span Hierarchy:** Captures per-operation latencies including tensor serialization, dynamic batch queue waiting, gRPC network transit, model execution, and offset commits.
+* **Unified OTLP Collector & Jaeger APM:** Bundled with an OTLP-compliant collector and Jaeger query engine for interactive latency waterfall analysis and service dependency graph generation.
+* **Adaptive Sampling:** Parameterized via `tracing.samplingRatio` (100% in development for deep debugging; 10% in production to minimize telemetry overhead).
+
+```bash
+# 1. Deploy OpenTelemetry & Jaeger tracing stack
+make tracing-install
+
+# 2. Forward Jaeger Web UI to localhost:16686
+kubectl port-forward svc/kubescale-jaeger 16686:16686 -n kubescale
+
+# 3. Generate traced inference traffic and inspect W3C trace IDs
+make tracing-demo
+
+# 4. Open browser at http://localhost:16686 to explore latency waterfalls
+```
+
+---
+
+## 15. Continuous Integration & Quality Assurance
 
 | Pipeline | Trigger | Checks Executed |
 |:---|:---|:---|
@@ -554,9 +599,10 @@ make test
 
 ---
 
-## 15. License
+## 16. License
 
 This project is licensed under the Apache 2.0 License.
+
 
 
 

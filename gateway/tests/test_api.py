@@ -154,3 +154,40 @@ def test_unload_nonexistent_model():
     response = client.post("/v1/repository/models/nonexistent_model_xyz/unload")
     assert response.status_code == 404
 
+
+def test_telemetry_tracer_initialization_and_spans():
+    """Verify OpenTelemetry tracer initializes and creates spans without errors."""
+    from app.telemetry import (
+        extract_trace_context,
+        get_current_trace_id,
+        init_tracer,
+        inject_trace_context,
+        trace_span,
+    )
+
+    tracer = init_tracer(service_name="test-gateway", environment="test")
+    assert tracer is not None
+
+    carrier = {}
+    with trace_span("gateway.test_span", attributes={"route": "/v1/test"}):
+        inject_trace_context(carrier)
+        assert "traceparent" in carrier
+
+    extracted = extract_trace_context(carrier)
+    assert extracted is not None
+
+
+def test_async_predict_with_tracing_context():
+    """Verify asynchronous inference request generates and includes trace context."""
+    payload = {
+        "model_name": "sentiment_onnx",
+        "inputs": [[0.1, 0.2, 0.3, 0.4]],
+        "callback_topic": "inference-results"
+    }
+    response = client.post("/v1/models/sentiment_onnx/async-predict", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "QUEUED"
+    assert "distributed trace context" in data["message"]
+
+

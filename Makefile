@@ -104,6 +104,10 @@ kyverno-install: ## Install Kyverno policy engine and enforce Zero-Trust admissi
 	@echo "--> Installing Kyverno and applying cluster security policies..."
 	./scripts/setup_kyverno.sh
 
+tracing-install: ## Deploy OpenTelemetry & Jaeger Distributed Tracing stack
+	@echo "--> Deploying OpenTelemetry Collector & Jaeger APM stack..."
+	./scripts/setup_tracing.sh
+
 models-generate: ## Generate dummy ONNX model artifacts for Triton repository
 	@echo "--> Generating ONNX model artifacts..."
 	source .venv/bin/activate && python models/scripts/generate_dummy_model.py
@@ -111,6 +115,10 @@ models-generate: ## Generate dummy ONNX model artifacts for Triton repository
 model-control-demo: ## Run live demonstration of Triton Model Control API and hot reload
 	@echo "--> Running Triton Live Reload & Multi-Model Serving demonstration..."
 	./scripts/demo_model_control.sh
+
+tracing-demo: ## Run live demonstration of distributed tracing with W3C context propagation
+	@echo "--> Running OpenTelemetry distributed tracing demonstration..."
+	./scripts/demo_tracing.sh
 
 load-test: ## Run concurrent load testing script against local gateway
 	@echo "--> Launching concurrent load generator..."

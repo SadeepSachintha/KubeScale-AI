@@ -33,6 +33,12 @@ class WorkerSettings(BaseSettings):
     # Health & Prometheus Telemetry Server
     HEALTH_PORT: int = 8080
 
+    # OpenTelemetry Distributed Tracing & APM
+    OTEL_ENABLED: bool = True
+    OTEL_SERVICE_NAME: str = "kubescale-worker"
+    OTEL_EXPORTER_OTLP_ENDPOINT: str = "http://kubescale-otel-collector:4317"
+    OTEL_SAMPLING_RATIO: float = 1.0
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

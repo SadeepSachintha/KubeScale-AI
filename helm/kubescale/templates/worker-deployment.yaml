@@ -44,6 +44,9 @@ spec:
             - name: metrics
               containerPort: {{ .Values.worker.service.port }}
               protocol: TCP
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: "kubescale-worker"
           envFrom:
             - configMapRef:
                 name: {{ include "kubescale.fullname" . }}-config

@@ -235,6 +235,24 @@ security:
     enabled: true
     validationFailureAction: "Enforce"
 
+# ------------------------------------------------------------------------------
+# OpenTelemetry Distributed Tracing & APM Production Settings
+# ------------------------------------------------------------------------------
+tracing:
+  enabled: true
+  samplingRatio: 0.1 # Adaptive 10% sampling to minimize telemetry overhead
+  otlpEndpoint: "http://kubescale-jaeger:4317"
+  jaeger:
+    enabled: true
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+
+
 
 
 

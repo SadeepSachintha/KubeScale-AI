@@ -28,6 +28,13 @@ except ImportError:
     grpcclient = None
 
 from worker.app.config import settings
+from worker.app.telemetry import (
+    extract_trace_context,
+    get_current_trace_id,
+    init_tracer,
+    inject_trace_context,
+    trace_span,
+)
 
 logging.basicConfig(
     level=settings.LOG_LEVEL,
@@ -210,54 +217,77 @@ class AsyncInferenceWorker:
         if not records:
             return []
 
-        BATCH_SIZE_HIST.observe(len(records))
-        batch_inputs = []
-        slice_indices = []
-        current_idx = 0
+        # Extract distributed W3C trace context from the first record if present
+        first_trace_ctx = None
+        if records and isinstance(records[0], dict):
+            first_trace_ctx = extract_trace_context(records[0].get("trace_context", {}))
 
-        # Build concatenated input matrix
-        for rec in records:
-            inputs = rec.get("inputs", [])
-            count = len(inputs)
-            slice_indices.append((current_idx, current_idx + count))
-            current_idx += count
-            batch_inputs.extend(inputs)
+        with trace_span(
+            "worker.process_micro_batch",
+            attributes={
+                "batch.size": len(records),
+                "model.name": records[0].get("model_name", settings.DEFAULT_MODEL_NAME),
+            },
+            context=first_trace_ctx,
+        ):
+            BATCH_SIZE_HIST.observe(len(records))
+            batch_inputs = []
+            slice_indices = []
+            current_idx = 0
 
-        model_name = records[0].get("model_name", settings.DEFAULT_MODEL_NAME)
-        model_version = str(records[0].get("model_version", settings.DEFAULT_MODEL_VERSION))
+            # Build concatenated input matrix
+            for rec in records:
+                inputs = rec.get("inputs", [])
+                count = len(inputs)
+                slice_indices.append((current_idx, current_idx + count))
+                current_idx += count
+                batch_inputs.extend(inputs)
 
-        # Execute batch inference
-        infer_start = time.perf_counter()
-        all_outputs = self._execute_inference(model_name, model_version, batch_inputs)
-        infer_duration = time.perf_counter() - infer_start
-        INFERENCE_LATENCY.labels(model_name=model_name).observe(infer_duration)
+            model_name = records[0].get("model_name", settings.DEFAULT_MODEL_NAME)
+            model_version = str(records[0].get("model_version", settings.DEFAULT_MODEL_VERSION))
 
-        # Slice outputs back to individual records
-        results = []
-        for i, rec in enumerate(records):
-            start_i, end_i = slice_indices[i]
-            rec_outputs = all_outputs[start_i:end_i]
+            # Execute batch inference
+            infer_start = time.perf_counter()
+            with trace_span(
+                "worker.triton_batch_infer",
+                attributes={
+                    "model.name": model_name,
+                    "model.version": model_version,
+                    "batch.tensor_count": len(batch_inputs),
+                },
+            ):
+                all_outputs = self._execute_inference(model_name, model_version, batch_inputs)
 
-            predictions = []
-            for row in rec_outputs:
-                if len(row) > 0:
-                    predictions.append(int(row.index(max(row))))
+            infer_duration = time.perf_counter() - infer_start
+            INFERENCE_LATENCY.labels(model_name=model_name).observe(infer_duration)
 
-            result_msg = {
-                "request_id": rec.get("request_id"),
-                "model_name": model_name,
-                "model_version": model_version,
-                "outputs": rec_outputs,
-                "predictions": predictions,
-                "status": "COMPLETED",
-                "callback_topic": rec.get("callback_topic", settings.KAFKA_RESULTS_TOPIC),
-                "metadata": rec.get("metadata", {}),
-                "inference_time_ms": round(infer_duration * 1000.0, 2),
-                "completed_at": time.time(),
-            }
-            results.append(result_msg)
+            # Slice outputs back to individual records
+            results = []
+            for i, rec in enumerate(records):
+                start_i, end_i = slice_indices[i]
+                rec_outputs = all_outputs[start_i:end_i]
 
-        return results
+                predictions = []
+                for row in rec_outputs:
+                    if len(row) > 0:
+                        predictions.append(int(row.index(max(row))))
+
+                result_msg = {
+                    "request_id": rec.get("request_id"),
+                    "model_name": model_name,
+                    "model_version": model_version,
+                    "outputs": rec_outputs,
+                    "predictions": predictions,
+                    "status": "COMPLETED",
+                    "callback_topic": rec.get("callback_topic", settings.KAFKA_RESULTS_TOPIC),
+                    "metadata": rec.get("metadata", {}),
+                    "trace_context": rec.get("trace_context", {}),
+                    "inference_time_ms": round(infer_duration * 1000.0, 2),
+                    "completed_at": time.time(),
+                }
+                results.append(result_msg)
+
+            return results
 
     def _execute_inference(
         self, model_name: str, model_version: str, input_data: List[List[float]]
@@ -298,6 +328,13 @@ class AsyncInferenceWorker:
     def run(self):
         """Main continuous event loop."""
         self.running = True
+        if settings.OTEL_ENABLED:
+            init_tracer(
+                service_name=settings.OTEL_SERVICE_NAME,
+                environment=settings.ENVIRONMENT,
+                endpoint=settings.OTEL_EXPORTER_OTLP_ENDPOINT,
+                sampling_ratio=settings.OTEL_SAMPLING_RATIO,
+            )
         self.start_health_server()
         self.init_triton()
         self.init_kafka()

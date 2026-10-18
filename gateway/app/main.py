@@ -20,6 +20,13 @@ from app.schemas import (
     ModelRepositoryItem,
     ModelRepositoryResponse,
 )
+from app.telemetry import (
+    extract_trace_context,
+    get_current_trace_id,
+    init_tracer,
+    inject_trace_context,
+    trace_span,
+)
 from app.triton_client import triton_client
 
 # ------------------------------------------------------------------------------
@@ -72,6 +79,14 @@ START_TIME = time.time()
 async def lifespan(app: FastAPI):
     """Lifecycle startup and teardown management."""
     logger.info("Initializing KubeScale AI Gateway...")
+    # Initialize OpenTelemetry Distributed Tracer
+    if settings.OTEL_ENABLED:
+        init_tracer(
+            service_name=settings.OTEL_SERVICE_NAME,
+            environment=settings.ENVIRONMENT,
+            endpoint=settings.OTEL_EXPORTER_OTLP_ENDPOINT,
+            sampling_ratio=settings.OTEL_SAMPLING_RATIO,
+        )
     # Initialize background connections
     _ = triton_client.get_client()
     if settings.KAFKA_ENABLED:
@@ -212,48 +227,66 @@ async def predict_sync(model_name: str, payload: InferenceRequest):
     Synchronous ML Inference:
     Forwards input tensors over low-latency gRPC to Triton Inference Server.
     Triton dynamically batches requests across concurrent pods.
+    Instrumented with OpenTelemetry distributed trace spans.
     """
     target_model = payload.model_name or model_name
     target_version = payload.model_version or "1"
 
-    infer_start = time.perf_counter()
-    try:
-        outputs, latency_ms = await triton_client.infer(
-            model_name=target_model,
-            input_data=payload.inputs,
-            model_version=target_version,
-        )
+    with trace_span(
+        "gateway.predict_sync",
+        attributes={
+            "model.name": target_model,
+            "model.version": target_version,
+            "request.id": payload.request_id,
+            "tensor.batch_size": len(payload.inputs),
+        },
+    ):
+        infer_start = time.perf_counter()
+        try:
+            with trace_span(
+                "triton.grpc_infer",
+                attributes={
+                    "model.name": target_model,
+                    "model.version": target_version,
+                    "triton.endpoint": settings.TRITON_GRPC_URL,
+                },
+            ):
+                outputs, latency_ms = await triton_client.infer(
+                    model_name=target_model,
+                    input_data=payload.inputs,
+                    model_version=target_version,
+                )
 
-        infer_duration = time.perf_counter() - infer_start
-        INFERENCE_LATENCY.labels(model_name=target_model).observe(infer_duration)
+            infer_duration = time.perf_counter() - infer_start
+            INFERENCE_LATENCY.labels(model_name=target_model).observe(infer_duration)
 
-        # Derive predicted class labels (argmax over output probabilities)
-        predictions = []
-        for row in outputs:
-            if len(row) > 0:
-                predictions.append(int(row.index(max(row))))
+            # Derive predicted class labels (argmax over output probabilities)
+            predictions = []
+            for row in outputs:
+                if len(row) > 0:
+                    predictions.append(int(row.index(max(row))))
 
-        return InferenceResponse(
-            request_id=payload.request_id,
-            model_name=target_model,
-            model_version=target_version,
-            outputs=outputs,
-            predictions=predictions,
-            latency_ms=round(latency_ms, 2),
-            backend="Triton-gRPC",
-        )
+            return InferenceResponse(
+                request_id=payload.request_id,
+                model_name=target_model,
+                model_version=target_version,
+                outputs=outputs,
+                predictions=predictions,
+                latency_ms=round(latency_ms, 2),
+                backend="Triton-gRPC",
+            )
 
-    except Exception as e:
-        logger.error(
-            "Prediction error for model '%s', request_id=%s: %s",
-            target_model,
-            payload.request_id,
-            str(e),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Inference execution failed: {str(e)}",
-        )
+        except Exception as e:
+            logger.error(
+                "Prediction error for model '%s', request_id=%s: %s",
+                target_model,
+                payload.request_id,
+                str(e),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Inference execution failed: {str(e)}",
+            )
 
 
 @app.post(
@@ -265,43 +298,54 @@ async def predict_async(model_name: str, payload: AsyncInferenceRequest):
     """
     Asynchronous / Event-Driven ML Inference:
     Enqueues the inference payload into an enterprise Kafka topic (managed by Strimzi).
-    Prevents head-of-line blocking and protects downstream inference workers during traffic surges.
+    Injects W3C TraceContext headers so consumer workers can link trace spans end-to-end.
     """
     target_topic = settings.KAFKA_INFERENCE_REQUESTS_TOPIC
-    event_payload = {
-        "request_id": payload.request_id,
-        "model_name": model_name,
-        "inputs": payload.inputs,
-        "callback_topic": payload.callback_topic,
-        "metadata": payload.metadata,
-        "timestamp": time.time(),
-    }
 
-    try:
-        publish_result = kafka_producer.publish_event(
-            topic=target_topic,
-            key=payload.request_id,
-            payload=event_payload,
-        )
+    with trace_span(
+        "gateway.predict_async.publish",
+        attributes={
+            "model.name": model_name,
+            "request.id": payload.request_id,
+            "kafka.topic": target_topic,
+        },
+    ):
+        trace_context = inject_trace_context()
+        event_payload = {
+            "request_id": payload.request_id,
+            "model_name": model_name,
+            "inputs": payload.inputs,
+            "callback_topic": payload.callback_topic,
+            "metadata": payload.metadata,
+            "trace_context": trace_context,
+            "timestamp": time.time(),
+        }
 
-        KAFKA_PUBLISH_COUNT.labels(topic=target_topic, status="success").inc()
+        try:
+            publish_result = kafka_producer.publish_event(
+                topic=target_topic,
+                key=payload.request_id,
+                payload=event_payload,
+            )
 
-        return AsyncInferenceResponse(
-            request_id=payload.request_id,
-            status="QUEUED",
-            topic=publish_result["topic"],
-            partition=publish_result.get("partition"),
-            offset=publish_result.get("offset"),
-            message="Inference job enqueued in Strimzi Kafka cluster.",
-        )
+            KAFKA_PUBLISH_COUNT.labels(topic=target_topic, status="success").inc()
 
-    except Exception as e:
-        KAFKA_PUBLISH_COUNT.labels(topic=target_topic, status="error").inc()
-        logger.error("Failed to enqueue async inference task: %s", str(e))
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Failed to publish inference job to Kafka stream: {str(e)}",
-        )
+            return AsyncInferenceResponse(
+                request_id=payload.request_id,
+                status="QUEUED",
+                topic=publish_result["topic"],
+                partition=publish_result.get("partition"),
+                offset=publish_result.get("offset"),
+                message="Inference job enqueued in Strimzi Kafka cluster with distributed trace context.",
+            )
+
+        except Exception as e:
+            KAFKA_PUBLISH_COUNT.labels(topic=target_topic, status="error").inc()
+            logger.error("Failed to enqueue async inference task: %s", str(e))
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Failed to publish inference job to Kafka stream: {str(e)}",
+            )
 
 
 @app.get("/v1/models/{model_name}/status", tags=["Inference"])

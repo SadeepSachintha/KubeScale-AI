@@ -14,3 +14,6 @@ data:
   KAFKA_ENABLED: {{ .Values.gateway.env.KAFKA_ENABLED | default "true" | quote }}
   KAFKA_INFERENCE_REQUESTS_TOPIC: "inference-requests"
   KAFKA_INFERENCE_RESULTS_TOPIC: "inference-results"
+  OTEL_ENABLED: {{ .Values.tracing.enabled | default false | quote }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.tracing.otlpEndpoint | default "http://kubescale-jaeger:4317" | quote }}
+  OTEL_SAMPLING_RATIO: {{ .Values.tracing.samplingRatio | default 1.0 | quote }}
