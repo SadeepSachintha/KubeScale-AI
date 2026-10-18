@@ -1,0 +1,305 @@
+import logging
+import time
+from contextlib import asynccontextmanager
+from typing import Optional
+
+from fastapi import FastAPI, HTTPException, Request, Response, status
+from fastapi.middleware.cors import CORSMiddleware
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+
+from app.config import settings
+from app.kafka_producer import kafka_producer
+from app.schemas import (
+    AsyncInferenceRequest,
+    AsyncInferenceResponse,
+    HealthStatus,
+    InferenceRequest,
+    InferenceResponse,
+)
+from app.triton_client import triton_client
+
+# ------------------------------------------------------------------------------
+# Logging Setup
+# ------------------------------------------------------------------------------
+logging.basicConfig(
+    level=settings.LOG_LEVEL,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger("kubescale-gateway")
+
+# ------------------------------------------------------------------------------
+# Prometheus Instrumentation Metrics
+# ------------------------------------------------------------------------------
+REQUEST_COUNT = Counter(
+    "kubescale_gateway_requests_total",
+    "Total HTTP requests received by gateway",
+    ["method", "endpoint", "status_code"],
+)
+REQUEST_LATENCY = Histogram(
+    "kubescale_gateway_request_duration_seconds",
+    "HTTP request latency in seconds",
+    ["endpoint"],
+    buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0],
+)
+INFERENCE_LATENCY = Histogram(
+    "kubescale_triton_inference_duration_seconds",
+    "Time taken for Triton gRPC inference in seconds",
+    ["model_name"],
+    buckets=[0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0],
+)
+KAFKA_PUBLISH_COUNT = Counter(
+    "kubescale_kafka_events_published_total",
+    "Total asynchronous events published to Strimzi Kafka",
+    ["topic", "status"],
+)
+
+START_TIME = time.time()
+
+
+# ------------------------------------------------------------------------------
+# Lifespan Management
+# ------------------------------------------------------------------------------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifecycle startup and teardown management."""
+    logger.info("Initializing KubeScale AI Gateway...")
+    # Initialize background connections
+    _ = triton_client.get_client()
+    if settings.KAFKA_ENABLED:
+        _ = kafka_producer.get_producer()
+    yield
+    logger.info("Shutting down KubeScale AI Gateway...")
+    triton_client.close()
+    kafka_producer.close()
+
+
+# ------------------------------------------------------------------------------
+# FastAPI Application
+# ------------------------------------------------------------------------------
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    version=settings.VERSION,
+    description=(
+        "Production-grade API Gateway for Triton Inference Server and Strimzi Kafka. "
+        "Enables horizontal scaling, dynamic batching, and decoupling of compute-heavy ML."
+    ),
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.middleware("http")
+async def prometheus_metrics_middleware(request: Request, call_next):
+    """Measure request latency and record Prometheus metrics."""
+    start_time = time.perf_counter()
+    endpoint = request.url.path
+
+    try:
+        response = await call_next(request)
+        duration = time.perf_counter() - start_time
+        REQUEST_LATENCY.labels(endpoint=endpoint).observe(duration)
+        REQUEST_COUNT.labels(
+            method=request.method,
+            endpoint=endpoint,
+            status_code=response.status_code,
+        ).inc()
+        return response
+    except Exception as exc:
+        duration = time.perf_counter() - start_time
+        REQUEST_LATENCY.labels(endpoint=endpoint).observe(duration)
+        REQUEST_COUNT.labels(
+            method=request.method,
+            endpoint=endpoint,
+            status_code=500,
+        ).inc()
+        raise exc
+
+
+# ------------------------------------------------------------------------------
+# Health & Diagnostic Endpoints (Kubernetes Probes)
+# ------------------------------------------------------------------------------
+@app.get("/healthz", response_model=HealthStatus, tags=["Health"])
+async def liveness_probe():
+    """
+    Kubernetes Liveness Probe: Verifies the process is alive and responsive.
+    Failure triggers pod reboot.
+    """
+    return HealthStatus(
+        status="UP",
+        service="kubescale-gateway",
+        environment=settings.ENVIRONMENT,
+        triton_grpc_connected=triton_client.is_healthy(),
+        kafka_connected=kafka_producer.is_healthy(),
+        version=settings.VERSION,
+        uptime_seconds=round(time.time() - START_TIME, 2),
+    )
+
+
+@app.get("/readyz", response_model=HealthStatus, tags=["Health"])
+async def readiness_probe():
+    """
+    Kubernetes Readiness Probe: Verifies Triton gRPC backend readiness.
+    If the inference backend is unavailable, the pod is removed from ingress traffic.
+    """
+    triton_ok = triton_client.is_healthy()
+    # In strict production, fail if Triton is down; in dev allow starting
+    is_ready = triton_ok or (settings.ENVIRONMENT == "dev")
+
+    if not is_ready:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Triton inference backend is not ready.",
+        )
+
+    return HealthStatus(
+        status="READY" if is_ready else "DEGRADED",
+        service="kubescale-gateway",
+        environment=settings.ENVIRONMENT,
+        triton_grpc_connected=triton_ok,
+        kafka_connected=kafka_producer.is_healthy(),
+        version=settings.VERSION,
+        uptime_seconds=round(time.time() - START_TIME, 2),
+    )
+
+
+@app.get("/metrics", tags=["Telemetry"])
+async def metrics():
+    """Expose Prometheus metrics for scraping by Prometheus Operator / Adapter."""
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+@app.get("/", tags=["General"])
+async def root():
+    """Root metadata overview."""
+    return {
+        "service": settings.PROJECT_NAME,
+        "version": settings.VERSION,
+        "environment": settings.ENVIRONMENT,
+        "docs_url": "/docs",
+        "health_endpoint": "/healthz",
+        "ready_endpoint": "/readyz",
+        "metrics_endpoint": "/metrics",
+    }
+
+
+# ------------------------------------------------------------------------------
+# Model Inference Endpoints
+# ------------------------------------------------------------------------------
+@app.post(
+    "/v1/models/{model_name}/predict",
+    response_model=InferenceResponse,
+    tags=["Inference"],
+)
+async def predict_sync(model_name: str, payload: InferenceRequest):
+    """
+    Synchronous ML Inference:
+    Forwards input tensors over low-latency gRPC to Triton Inference Server.
+    Triton dynamically batches requests across concurrent pods.
+    """
+    target_model = payload.model_name or model_name
+    target_version = payload.model_version or "1"
+
+    infer_start = time.perf_counter()
+    try:
+        outputs, latency_ms = await triton_client.infer(
+            model_name=target_model,
+            input_data=payload.inputs,
+            model_version=target_version,
+        )
+
+        infer_duration = time.perf_counter() - infer_start
+        INFERENCE_LATENCY.labels(model_name=target_model).observe(infer_duration)
+
+        # Derive predicted class labels (argmax over output probabilities)
+        predictions = []
+        for row in outputs:
+            if len(row) > 0:
+                predictions.append(int(row.index(max(row))))
+
+        return InferenceResponse(
+            request_id=payload.request_id,
+            model_name=target_model,
+            model_version=target_version,
+            outputs=outputs,
+            predictions=predictions,
+            latency_ms=round(latency_ms, 2),
+            backend="Triton-gRPC",
+        )
+
+    except Exception as e:
+        logger.error(
+            "Prediction error for model '%s', request_id=%s: %s",
+            target_model,
+            payload.request_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Inference execution failed: {str(e)}",
+        )
+
+
+@app.post(
+    "/v1/models/{model_name}/async-predict",
+    response_model=AsyncInferenceResponse,
+    tags=["Streaming Inference"],
+)
+async def predict_async(model_name: str, payload: AsyncInferenceRequest):
+    """
+    Asynchronous / Event-Driven ML Inference:
+    Enqueues the inference payload into an enterprise Kafka topic (managed by Strimzi).
+    Prevents head-of-line blocking and protects downstream inference workers during traffic surges.
+    """
+    target_topic = settings.KAFKA_INFERENCE_REQUESTS_TOPIC
+    event_payload = {
+        "request_id": payload.request_id,
+        "model_name": model_name,
+        "inputs": payload.inputs,
+        "callback_topic": payload.callback_topic,
+        "metadata": payload.metadata,
+        "timestamp": time.time(),
+    }
+
+    try:
+        publish_result = kafka_producer.publish_event(
+            topic=target_topic,
+            key=payload.request_id,
+            payload=event_payload,
+        )
+
+        KAFKA_PUBLISH_COUNT.labels(topic=target_topic, status="success").inc()
+
+        return AsyncInferenceResponse(
+            request_id=payload.request_id,
+            status="QUEUED",
+            topic=publish_result["topic"],
+            partition=publish_result.get("partition"),
+            offset=publish_result.get("offset"),
+            message="Inference job enqueued in Strimzi Kafka cluster.",
+        )
+
+    except Exception as e:
+        KAFKA_PUBLISH_COUNT.labels(topic=target_topic, status="error").inc()
+        logger.error("Failed to enqueue async inference task: %s", str(e))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Failed to publish inference job to Kafka stream: {str(e)}",
+        )
+
+
+@app.get("/v1/models/{model_name}/status", tags=["Inference"])
+async def model_status(model_name: str, version: Optional[str] = "1"):
+    """Check Triton model readiness."""
+    is_ready = triton_client.is_model_ready(model_name=model_name, model_version=version)
+    return {
+        "model_name": model_name,
+        "version": version,
+        "ready": is_ready,
+    }

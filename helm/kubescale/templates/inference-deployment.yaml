@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kubescale.inference.fullname" . }}
+  labels:
+    {{- include "kubescale.labels" . | nindent 4 }}
+    app.kubernetes.io/component: inference
+spec:
+  replicas: {{ .Values.inference.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: {{ .Values.inference.rollingUpdate.maxSurge }}
+      maxUnavailable: {{ .Values.inference.rollingUpdate.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "kubescale.inference.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kubescale.inference.selectorLabels" . | nindent 8 }}
+        {{- include "kubescale.labels" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "{{ .Values.inference.service.metricsPort }}"
+    spec:
+      {{- if .Values.inference.serviceAccount.create }}
+      serviceAccountName: {{ .Values.inference.serviceAccount.name }}
+      {{- end }}
+      containers:
+        - name: tritonserver
+          image: "{{ .Values.inference.image.repository }}:{{ .Values.inference.image.tag }}"
+          imagePullPolicy: {{ .Values.inference.image.pullPolicy }}
+          command:
+            {{- toYaml .Values.inference.command | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.inference.service.httpPort }}
+              protocol: TCP
+            - name: grpc
+              containerPort: {{ .Values.inference.service.grpcPort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.inference.service.metricsPort }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.inference.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.inference.probes.liveness.path }}
+              port: {{ .Values.inference.probes.liveness.port }}
+            initialDelaySeconds: {{ .Values.inference.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.inference.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.inference.probes.liveness.timeoutSeconds }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.inference.probes.readiness.path }}
+              port: {{ .Values.inference.probes.readiness.port }}
+            initialDelaySeconds: {{ .Values.inference.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.inference.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.inference.probes.readiness.timeoutSeconds }}
+          volumeMounts:
+            {{- if eq .Values.inference.modelStorage.type "configMap" }}
+            - name: model-config-volume
+              mountPath: /models/sentiment_onnx/config.pbtxt
+              subPath: config.pbtxt
+            {{- end }}
+      volumes:
+        {{- if eq .Values.inference.modelStorage.type "configMap" }}
+        - name: model-config-volume
+          configMap:
+            name: {{ include "kubescale.fullname" . }}-model-config
+        {{- end }}

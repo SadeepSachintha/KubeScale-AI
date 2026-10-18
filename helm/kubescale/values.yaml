@@ -1,0 +1,188 @@
+# ==============================================================================
+# Default Configuration Values for KubeScale AI Helm Chart
+# Environment: Development / Local Cluster (K3s / Minikube / Kind)
+# ==============================================================================
+
+environment: dev
+
+# ------------------------------------------------------------------------------
+# API Gateway Microservice (FastAPI Stateless Deployment)
+# ------------------------------------------------------------------------------
+gateway:
+  replicaCount: 2
+  image:
+    repository: kubescale/gateway
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 8000
+
+  env:
+    LOG_LEVEL: "INFO"
+    TRITON_TIMEOUT_SECONDS: "5.0"
+    KAFKA_ENABLED: "true"
+
+  rollingUpdate:
+    maxSurge: 25%
+    maxUnavailable: 0
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  probes:
+    liveness:
+      path: /healthz
+      initialDelaySeconds: 10
+      periodSeconds: 15
+      timeoutSeconds: 3
+      failureThreshold: 3
+    readiness:
+      path: /readyz
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
+    startup:
+      path: /healthz
+      failureThreshold: 30
+      periodSeconds: 5
+
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+# ------------------------------------------------------------------------------
+# Decoupled Triton Inference Server (Stateless ML Compute Engine)
+# ------------------------------------------------------------------------------
+inference:
+  replicaCount: 2
+  image:
+    repository: nvcr.io/nvidia/tritonserver
+    tag: 24.05-py3
+    pullPolicy: IfNotPresent
+
+  command:
+    - "tritonserver"
+    - "--model-repository=/models"
+    - "--strict-model-config=false"
+    - "--exit-on-error=false"
+    - "--log-verbose=0"
+
+  service:
+    type: ClusterIP
+    httpPort: 8000
+    grpcPort: 8001
+    metricsPort: 8002
+
+  rollingUpdate:
+    maxSurge: 25%
+    maxUnavailable: 0
+
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+    limits:
+      cpu: 4000m
+      memory: 8Gi
+
+  probes:
+    liveness:
+      path: /v2/health/live
+      port: 8000
+      initialDelaySeconds: 20
+      periodSeconds: 15
+      timeoutSeconds: 5
+    readiness:
+      path: /v2/health/ready
+      port: 8000
+      initialDelaySeconds: 25
+      periodSeconds: 10
+      timeoutSeconds: 5
+
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 75
+    targetMemoryUtilizationPercentage: 85
+
+  serviceAccount:
+    create: true
+    name: kubescale-inference-sa
+    annotations: {}
+
+  modelStorage:
+    type: configMap # or "pvc" or "s3"
+    configMapName: kubescale-model-config
+
+# ------------------------------------------------------------------------------
+# Strimzi Kafka Operator Stateful Streaming Cluster
+# ------------------------------------------------------------------------------
+kafka:
+  enabled: true
+  clusterName: kubescale-kafka
+  replicas: 3
+  storage:
+    type: persistent-claim
+    size: 10Gi
+    class: gp3
+    deleteClaim: false
+  zookeeper:
+    replicas: 3
+    storage:
+      type: persistent-claim
+      size: 5Gi
+      class: gp3
+      deleteClaim: false
+  topics:
+    - name: inference-requests
+      partitions: 6
+      replicas: 3
+    - name: inference-results
+      partitions: 6
+      replicas: 3
+
+# ------------------------------------------------------------------------------
+# Ingress Controller Routing & TLS Termination
+# ------------------------------------------------------------------------------
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: "64m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+  hosts:
+    - host: api.kubescale.local
+      paths:
+        - path: /
+          pathType: Prefix
+          service: gateway
+  tls: []
+
+# ------------------------------------------------------------------------------
+# Resilience: PodDisruptionBudgets
+# ------------------------------------------------------------------------------
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# ------------------------------------------------------------------------------
+# Cluster Secrets
+# ------------------------------------------------------------------------------
+secrets:
+  apiKey: "kubescale-dev-secret-key"
+  internalToken: "kubescale-internal-cluster-auth-token"

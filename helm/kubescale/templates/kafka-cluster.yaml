@@ -1,0 +1,61 @@
+{{- if .Values.kafka.enabled }}
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: {{ .Values.kafka.clusterName }}
+  labels:
+    {{- include "kubescale.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kafka-streaming
+spec:
+  kafka:
+    version: 3.7.0
+    replicas: {{ .Values.kafka.replicas }}
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+      - name: tls
+        port: 9093
+        type: internal
+        tls: true
+    config:
+      offsets.topic.replication.factor: {{ .Values.kafka.replicas }}
+      transaction.state.log.replication.factor: {{ .Values.kafka.replicas }}
+      transaction.state.log.min.isr: 2
+      default.replication.factor: {{ .Values.kafka.replicas }}
+      min.insync.replicas: 2
+      inter.broker.protocol.version: "3.7"
+      auto.create.topics.enable: false
+    storage:
+      type: {{ .Values.kafka.storage.type }}
+      size: {{ .Values.kafka.storage.size }}
+      class: {{ .Values.kafka.storage.class }}
+      deleteClaim: {{ .Values.kafka.storage.deleteClaim }}
+  zookeeper:
+    replicas: {{ .Values.kafka.zookeeper.replicas }}
+    storage:
+      type: {{ .Values.kafka.zookeeper.storage.type }}
+      size: {{ .Values.kafka.zookeeper.storage.size }}
+      deleteClaim: {{ .Values.kafka.zookeeper.storage.deleteClaim }}
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}
+---
+{{- range .Values.kafka.topics }}
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: {{ .name }}
+  labels:
+    strimzi.io/cluster: {{ $.Values.kafka.clusterName }}
+    {{- include "kubescale.labels" $ | nindent 4 }}
+spec:
+  partitions: {{ .partitions }}
+  replicas: {{ .replicas }}
+  config:
+    retention.ms: 604800000
+    segment.bytes: 1073741824
+---
+{{- end }}
+{{- end }}

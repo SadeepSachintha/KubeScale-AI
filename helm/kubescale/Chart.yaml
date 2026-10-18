@@ -1,0 +1,17 @@
+apiVersion: v2
+name: kubescale
+description: Enterprise Cloud-Native ML Serving & Event Streaming Infrastructure with Triton, FastAPI, and Strimzi Kafka
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+maintainers:
+  - name: KubeScale AI Team
+    email: platform-eng@kubescale.ai
+keywords:
+  - kubernetes
+  - ml-serving
+  - triton
+  - kafka
+  - strimzi
+  - fastapi
+  - hpa
