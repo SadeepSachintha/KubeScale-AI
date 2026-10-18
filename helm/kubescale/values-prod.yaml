@@ -180,3 +180,16 @@ keda:
     prometheusServerAddress: "http://prometheus-k8s.monitoring.svc:9090"
     queueThresholdUs: "10000"
 
+# ------------------------------------------------------------------------------
+# Observability: Prometheus ServiceMonitors & Alerting Rules (Production)
+# ------------------------------------------------------------------------------
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: "10s"
+    scrapeTimeout: "5s"
+  prometheusRules:
+    enabled: true
+
+

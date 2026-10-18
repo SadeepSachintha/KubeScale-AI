@@ -1,0 +1,70 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: kubescale-alert-rules
+  labels:
+    app.kubernetes.io/name: kubescale
+    role: alert-rules
+spec:
+  groups:
+    - name: kubescale.alerts
+      rules:
+        - alert: GatewayHighLatency
+          expr: histogram_quantile(0.99, sum(rate(kubescale_gateway_request_duration_seconds_bucket[2m])) by (le)) > 0.5
+          for: 3m
+          labels:
+            severity: warning
+            team: platform-eng
+          annotations:
+            summary: "KubeScale Gateway P99 latency exceeded 500ms"
+            description: "Gateway P99 request duration is {{ $value | humanizeDuration }} over the last 3 minutes."
+
+        - alert: GatewayCriticalErrorRate
+          expr: (sum(rate(kubescale_gateway_requests_total{status_code=~"5.."}[2m])) / sum(rate(kubescale_gateway_requests_total[2m]))) > 0.05
+          for: 2m
+          labels:
+            severity: critical
+            team: platform-eng
+          annotations:
+            summary: "KubeScale Gateway 5xx error rate exceeded 5%"
+            description: "5xx HTTP responses account for {{ $value | humanizePercentage }} of gateway traffic."
+
+        - alert: TritonQueueStall
+          expr: (sum(rate(nv_inference_queue_duration_us[2m])) / sum(rate(nv_inference_request_count[2m]))) > 20000
+          for: 3m
+          labels:
+            severity: warning
+            team: mlops
+          annotations:
+            summary: "Triton dynamic batch queue stall detected"
+            description: "Average inference queue wait duration exceeded 20ms for 3 minutes."
+
+        - alert: KafkaConsumerLagElevated
+          expr: sum(kafka_consumergroup_lag{topic="inference-requests"}) > 500
+          for: 5m
+          labels:
+            severity: warning
+            team: data-eng
+          annotations:
+            summary: "Kafka inference request consumer lag elevated"
+            description: "Current unconsumed messages on topic 'inference-requests' is {{ $value }}."
+
+        - alert: KafkaConsumerLagCritical
+          expr: sum(kafka_consumergroup_lag{topic="inference-requests"}) > 2500
+          for: 5m
+          labels:
+            severity: critical
+            team: data-eng
+          annotations:
+            summary: "Critical Kafka inference consumer backlog"
+            description: "Kafka consumer lag has exceeded 2,500 messages for 5 minutes."
+
+        - alert: AsyncInferenceWorkerDown
+          expr: sum(kube_deployment_status_replicas_available{deployment="kubescale-worker"}) == 0
+          for: 1m
+          labels:
+            severity: critical
+            team: platform-eng
+          annotations:
+            summary: "All KubeScale Async Workers are unavailable"
+            description: "Zero available worker pods detected to process Kafka inference stream."

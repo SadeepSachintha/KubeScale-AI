@@ -1,0 +1,148 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "title": "Inference Request Throughput",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(rate(nv_inference_request_count[1m])) or on() vector(0)",
+          "legendFormat": "Inferences/sec",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "color": { "mode": "palette-classic" } }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "title": "Average Queue Duration",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "(sum(rate(nv_inference_queue_duration_us[1m])) / sum(rate(nv_inference_request_count[1m]))) / 1000 or on() vector(0)",
+          "legendFormat": "Queue Time",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 10 },
+              { "color": "red", "value": 25 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "id": 3,
+      "title": "Average Compute Duration",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "(sum(rate(nv_inference_compute_duration_us[1m])) / sum(rate(nv_inference_request_count[1m]))) / 1000 or on() vector(0)",
+          "legendFormat": "Compute Time",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ms", "color": { "mode": "palette-classic" } }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "id": 4,
+      "title": "Model Execution Failures",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(rate(nv_inference_request_failure[1m])) or on() vector(0)",
+          "legendFormat": "Failures/sec",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "id": 5,
+      "title": "Inference Throughput by Model Name",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(nv_inference_request_count[1m])) by (model)",
+          "legendFormat": "Model: {{model}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "fillOpacity": 15, "lineWidth": 2 }
+        }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "id": 6,
+      "title": "Latency Breakdown (Queue vs Compute)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(nv_inference_queue_duration_us[1m])) by (model) / sum(rate(nv_inference_request_count[1m])) by (model) / 1000",
+          "legendFormat": "{{model}} - Queue Wait (ms)",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(nv_inference_compute_duration_us[1m])) by (model) / sum(rate(nv_inference_request_count[1m])) by (model) / 1000",
+          "legendFormat": "{{model}} - Execution (ms)",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ms", "custom": { "lineWidth": 2 } }
+      }
+    }
+  ],
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["kubescale", "triton", "inference", "onnx"],
+  "time": { "from": "now-30m", "to": "now" },
+  "title": "KubeScale AI - Triton Inference Deep-Dive",
+  "uid": "kubescale-triton"
+}

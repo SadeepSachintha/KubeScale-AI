@@ -84,6 +84,11 @@ keda-install: ## Install KEDA Operator for Kafka lag and Triton queue autoscalin
 	@echo "--> Installing KEDA Operator..."
 	./scripts/setup_keda.sh
 
+monitoring-install: ## Deploy Prometheus Operator, Alertmanager, and Curated Grafana Dashboards
+	@echo "--> Deploying Prometheus & Grafana stack..."
+	./scripts/setup_monitoring.sh
+
+
 
 load-test: ## Run concurrent load testing script against local gateway
 	@echo "--> Launching concurrent load generator..."

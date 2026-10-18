@@ -1,0 +1,145 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "title": "Gateway Kafka Publish Rate",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(rate(kubescale_kafka_events_published_total[1m])) or on() vector(0)",
+          "legendFormat": "Events Published/sec",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "color": { "mode": "palette-classic" } }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "title": "Worker Consumption Rate",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(rate(kubescale_worker_messages_consumed_total{status=\"success\"}[1m])) or on() vector(0)",
+          "legendFormat": "Consumed/sec",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "color": { "mode": "palette-classic" } }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "id": 3,
+      "title": "Estimated Kafka Consumer Lag",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(kafka_consumergroup_lag{topic=\"inference-requests\"}) or on() vector(0)",
+          "legendFormat": "Total Unprocessed Messages",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 50 },
+              { "color": "red", "value": 200 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "id": 4,
+      "title": "Worker Mean Batch Size",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "rate(kubescale_worker_batch_size_sum[1m]) / rate(kubescale_worker_batch_size_count[1m]) or on() vector(0)",
+          "legendFormat": "Records / Micro-Batch",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "none", "color": { "mode": "palette-classic" } }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "id": 5,
+      "title": "Ingestion Rate vs Consumption Rate",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(kubescale_kafka_events_published_total[1m])) or on() vector(0)",
+          "legendFormat": "Published to requests topic",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(kubescale_worker_messages_consumed_total{status=\"success\"}[1m])) or on() vector(0)",
+          "legendFormat": "Consumed by workers",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "fillOpacity": 15, "lineWidth": 2 } }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "id": 6,
+      "title": "Worker End-to-End Processing Latency",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(kubescale_worker_end_to_end_seconds_bucket[1m])) by (le)) * 1000",
+          "legendFormat": "P50 Latency (ms)",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(kubescale_worker_end_to_end_seconds_bucket[1m])) by (le)) * 1000",
+          "legendFormat": "P95 Latency (ms)",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(kubescale_worker_end_to_end_seconds_bucket[1m])) by (le)) * 1000",
+          "legendFormat": "P99 Latency (ms)",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ms", "custom": { "lineWidth": 2 } }
+      }
+    }
+  ],
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["kubescale", "kafka", "streaming", "worker"],
+  "time": { "from": "now-30m", "to": "now" },
+  "title": "KubeScale AI - Event Streaming & Worker Pipeline",
+  "uid": "kubescale-kafka"
+}

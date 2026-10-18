@@ -1,0 +1,216 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "title": "Gateway Request Rate",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(rate(kubescale_gateway_requests_total[1m]))",
+          "legendFormat": "Total RPS",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "unit": "reqps"
+        }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "title": "Gateway P95 Latency",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(kubescale_gateway_request_duration_seconds_bucket[1m])) by (le)) * 1000",
+          "legendFormat": "P95 Latency",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 100 },
+              { "color": "red", "value": 250 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "id": 3,
+      "title": "Triton Mean Compute Time",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "rate(kubescale_triton_inference_duration_seconds_sum[1m]) / rate(kubescale_triton_inference_duration_seconds_count[1m]) * 1000 or on() vector(0)",
+          "legendFormat": "Mean Inference",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "unit": "ms"
+        }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "id": 4,
+      "title": "Async Worker Consumption Rate",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(rate(kubescale_worker_messages_consumed_total{status=\"success\"}[1m])) or on() vector(0)",
+          "legendFormat": "Msgs/sec",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "unit": "ops"
+        }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "id": 5,
+      "title": "Gateway Throughput by HTTP Status Code",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(kubescale_gateway_requests_total[1m])) by (status_code)",
+          "legendFormat": "Status {{status_code}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "fillOpacity": 15,
+            "lineWidth": 2
+          }
+        }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "id": 6,
+      "title": "Gateway End-to-End Latency Quantiles",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(kubescale_gateway_request_duration_seconds_bucket[1m])) by (le)) * 1000",
+          "legendFormat": "p50 (Median)",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.90, sum(rate(kubescale_gateway_request_duration_seconds_bucket[1m])) by (le)) * 1000",
+          "legendFormat": "p90",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(kubescale_gateway_request_duration_seconds_bucket[1m])) by (le)) * 1000",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "id": 7,
+      "title": "Triton Dynamic Queue vs Compute Duration",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "(rate(nv_inference_queue_duration_us[1m]) / rate(nv_inference_request_count[1m])) / 1000 or on() vector(0)",
+          "legendFormat": "Queue Wait (ms)",
+          "refId": "A"
+        },
+        {
+          "expr": "(rate(nv_inference_compute_duration_us[1m]) / rate(nv_inference_request_count[1m])) / 1000 or on() vector(0)",
+          "legendFormat": "Model Execution (ms)",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2
+          }
+        }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "id": 8,
+      "title": "Cluster Pod Replicas (HPA & KEDA Elasticity)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(kube_deployment_status_replicas{deployment=~\"kubescale-.*\"}) by (deployment)",
+          "legendFormat": "{{deployment}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "lineWidth": 2,
+            "drawStyle": "line"
+          }
+        }
+      }
+    }
+  ],
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["kubescale", "ml-serving", "kubernetes", "triton", "kafka"],
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "title": "KubeScale AI - Platform Overview & SLIs",
+  "uid": "kubescale-overview"
+}

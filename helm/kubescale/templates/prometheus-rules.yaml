@@ -1,0 +1,62 @@
+{{- if and .Values.monitoring.enabled .Values.monitoring.prometheusRules.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "kubescale.fullname" . }}-alerts
+  labels:
+    {{- include "kubescale.labels" . | nindent 4 }}
+    role: alert-rules
+spec:
+  groups:
+    - name: kubescale.alerts
+      rules:
+        - alert: GatewayHighLatency
+          expr: histogram_quantile(0.99, sum(rate(kubescale_gateway_request_duration_seconds_bucket[2m])) by (le)) > 0.5
+          for: 3m
+          labels:
+            severity: warning
+            team: platform-eng
+          annotations:
+            summary: "Gateway P99 latency exceeded 500ms"
+            description: "Gateway P99 request latency is above 500ms for 3 minutes."
+
+        - alert: GatewayCriticalErrorRate
+          expr: (sum(rate(kubescale_gateway_requests_total{status_code=~"5.."}[2m])) / sum(rate(kubescale_gateway_requests_total[2m]))) > 0.05
+          for: 2m
+          labels:
+            severity: critical
+            team: platform-eng
+          annotations:
+            summary: "Gateway 5xx error rate exceeded 5%"
+            description: "5xx HTTP responses account for >5% of total ingress requests."
+
+        - alert: TritonQueueStall
+          expr: (sum(rate(nv_inference_queue_duration_us[2m])) / sum(rate(nv_inference_request_count[2m]))) > 20000
+          for: 3m
+          labels:
+            severity: warning
+            team: mlops
+          annotations:
+            summary: "Triton dynamic batch queue stall detected"
+            description: "Average inference queue wait duration exceeded 20ms for 3 minutes."
+
+        - alert: KafkaConsumerLagElevated
+          expr: sum(kafka_consumergroup_lag{topic="inference-requests"}) > 500
+          for: 5m
+          labels:
+            severity: warning
+            team: data-eng
+          annotations:
+            summary: "Kafka inference request consumer lag elevated"
+            description: "Unconsumed message backlog on 'inference-requests' is > 500."
+
+        - alert: AsyncInferenceWorkerDown
+          expr: sum(kube_deployment_status_replicas_available{deployment="{{ include "kubescale.worker.fullname" . }}"}) == 0
+          for: 1m
+          labels:
+            severity: critical
+            team: platform-eng
+          annotations:
+            summary: "All Async Workers unavailable"
+            description: "Zero available worker pods available to consume Kafka stream."
+{{- end }}

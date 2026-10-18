@@ -362,12 +362,41 @@ kubectl get pods -n kubescale -l app.kubernetes.io/component=worker -w
 
 ---
 
-## 8. Continuous Integration & Quality Assurance
+## 8. Deep Observability & Curated Grafana Dashboards
+
+KubeScale AI includes Prometheus Operator integration via `ServiceMonitors`, production alerting rules, and curated Grafana dashboards:
+
+### Dashboards Included:
+1. **Platform Overview & SLIs (`monitoring/dashboards/kubescale-overview.json`):** Gateway RPS, HTTP 2xx/4xx/5xx status distribution, P50/P90/P95/P99 latency percentiles, Triton mean inference duration, and active HPA/KEDA pod replicas.
+2. **Triton ML Serving Deep-Dive (`monitoring/dashboards/triton-inference.json`):** Inference throughput per model, dynamic batch queue wait time vs. compute execution duration, and model failure rates.
+3. **Kafka Streaming & Worker Pipeline (`monitoring/dashboards/kafka-streaming.json`):** Gateway event publish rate, worker consumption rate, consumer lag per partition, and micro-batch size distributions.
+
+### Alerting Rules (`monitoring/rules/kubescale-prometheus-rules.yaml`):
+* `GatewayHighLatency`: Fires when P99 request latency exceeds 500ms for 3 minutes.
+* `GatewayCriticalErrorRate`: Fires when 5xx HTTP errors exceed 5% of traffic.
+* `TritonQueueStall`: Fires when Triton dynamic batch queue wait exceeds 20ms.
+* `KafkaConsumerLagElevated`: Fires when consumer lag on `inference-requests` exceeds 500 messages.
+* `AsyncInferenceWorkerDown`: Critical alert when zero worker pods are available to process traffic.
+
+### Quick Start Monitoring:
+```bash
+# 1. Deploy Prometheus Operator, Alertmanager, Grafana, and import dashboards
+make monitoring-install
+
+# 2. Forward Grafana port to localhost:3000
+kubectl port-forward svc/prometheus-stack-grafana 3000:80 -n monitoring
+# Access: http://localhost:3000 (User: admin / Password: prom-operator)
+```
+
+---
+
+## 9. Continuous Integration & Quality Assurance
 
 | Pipeline | Trigger | Checks Executed |
 |:---|:---|:---|
 | **Terraform CI** | Push/PR in `/terraform` | `terraform fmt -check`, `terraform init`, `terraform validate`, `tflint`, `trivy` |
-| **Helm & Container CI** | Push/PR in `/helm`, `/gateway` | `helm lint` (dev & prod values), `helm template`, Python unit tests (`pytest`), Docker container build |
+| **Helm & Container CI** | Push/PR in `/helm`, `/gateway`, `/worker` | `helm lint` (dev & prod values), `helm template`, Python unit tests (`pytest`), Docker container builds |
+
 
 Run all validations locally:
 ```bash
