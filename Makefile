@@ -80,6 +80,11 @@ cluster-local: ## Bootstrap local Kubernetes cluster with Strimzi and Helm stack
 	@echo "--> Bootstrapping local Kubernetes cluster..."
 	./scripts/setup_local_cluster.sh
 
+keda-install: ## Install KEDA Operator for Kafka lag and Triton queue autoscaling
+	@echo "--> Installing KEDA Operator..."
+	./scripts/setup_keda.sh
+
+
 load-test: ## Run concurrent load testing script against local gateway
 	@echo "--> Launching concurrent load generator..."
 	python3 ./scripts/load_test.py --url http://localhost:8000/v1/models/sentiment_onnx/predict --requests 500 --concurrency 25

@@ -1,0 +1,105 @@
+{{- if and .Values.keda.enabled .Values.worker.enabled .Values.keda.worker.enabled }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "kubescale.worker.fullname" . }}-keda
+  labels:
+    {{- include "kubescale.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "kubescale.worker.fullname" . }}
+  minReplicaCount: {{ .Values.keda.worker.minReplicaCount | default 0 }}
+  maxReplicaCount: {{ .Values.keda.worker.maxReplicaCount | default 20 }}
+  pollingInterval: {{ .Values.keda.worker.pollingInterval | default 15 }}
+  cooldownPeriod: {{ .Values.keda.worker.cooldownPeriod | default 300 }}
+  fallback:
+    failureThreshold: 3
+    replicas: {{ .Values.worker.replicaCount }}
+  advanced:
+    restoreToOriginalReplicaCount: false
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Percent
+              value: 100
+              periodSeconds: 15
+            - type: Pods
+              value: 4
+              periodSeconds: 15
+          selectPolicy: Max
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+            - type: Percent
+              value: 20
+              periodSeconds: 60
+          selectPolicy: Min
+  triggers:
+    # Scale on Kafka topic consumer lag (proactive scaling before message accumulation)
+    - type: kafka
+      metadata:
+        bootstrapServers: "{{ .Values.kafka.clusterName }}-kafka-bootstrap:9092"
+        consumerGroup: {{ .Values.keda.worker.consumerGroup | default "kubescale-inference-workers" | quote }}
+        topic: "inference-requests"
+        lagThreshold: {{ .Values.keda.worker.lagThreshold | default "50" | quote }}
+        offsetResetPolicy: "earliest"
+    # Secondary trigger: scale on CPU saturation if batch processing peaks
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: {{ .Values.worker.hpa.targetCPUUtilizationPercentage | default "70" | quote }}
+---
+{{- end }}
+{{- if and .Values.keda.enabled .Values.inference.enabled .Values.keda.inference.enabled }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "kubescale.inference.fullname" . }}-keda
+  labels:
+    {{- include "kubescale.labels" . | nindent 4 }}
+    app.kubernetes.io/component: inference
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "kubescale.inference.fullname" . }}
+  minReplicaCount: {{ .Values.keda.inference.minReplicaCount | default 2 }}
+  maxReplicaCount: {{ .Values.keda.inference.maxReplicaCount | default 10 }}
+  pollingInterval: {{ .Values.keda.inference.pollingInterval | default 15 }}
+  cooldownPeriod: {{ .Values.keda.inference.cooldownPeriod | default 300 }}
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Percent
+              value: 50
+              periodSeconds: 30
+          selectPolicy: Max
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+            - type: Percent
+              value: 10
+              periodSeconds: 60
+          selectPolicy: Min
+  triggers:
+    # Scale Triton inference pods based on Triton dynamic queue wait duration
+    - type: prometheus
+      metadata:
+        serverAddress: {{ .Values.keda.inference.prometheusServerAddress | default "http://prometheus-k8s.monitoring.svc:9090" | quote }}
+        metricName: triton_queue_duration_us
+        query: "sum(rate(nv_inference_queue_duration_us[1m])) or on() vector(0)"
+        threshold: {{ .Values.keda.inference.queueThresholdUs | default "5000" | quote }}
+    # Secondary trigger: scale on compute load
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: {{ .Values.inference.hpa.targetCPUUtilizationPercentage | default "75" | quote }}
+{{- end }}

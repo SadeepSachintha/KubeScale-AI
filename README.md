@@ -332,22 +332,32 @@ curl http://localhost:8000/metrics
 
 ---
 
-## 7. Elasticity Testing & HPA Verification
+## 7. Elasticity Testing & Autoscaling (HPA & KEDA)
 
+### Standard Resource Autoscaling (CPU / Memory HPA)
 Simulate sudden production traffic bursts to trigger the Horizontal Pod Autoscaler scaling pods from 2 to 10:
 
 ```bash
 # Launch concurrent load test (500 requests, 25 worker threads)
 make load-test
+
+# Monitor dynamic cluster auto-scaling in real-time
+kubectl get hpa -n kubescale -w
+kubectl get pods -n kubescale -l app.kubernetes.io/name=kubescale -w
 ```
 
-Monitor dynamic cluster auto-scaling in real-time:
-```bash
-# Watch HPA replica scaling
-kubectl get hpa -n kubescale -w
+### Proactive Event-Driven Autoscaling (KEDA)
+When traffic surges occur asynchronously over Kafka, standard CPU-based HPA can lag behind message volume. **KEDA** scales the worker pods based on **Kafka consumer group lag** (`records-lag-max > 50`) and Triton pods based on **queue wait duration**:
 
-# Watch pods launching and becoming ready
-kubectl get pods -n kubescale -l app.kubernetes.io/name=kubescale -w
+```bash
+# 1. Install KEDA Operator
+make keda-install
+
+# 2. Inspect active KEDA ScaledObjects
+kubectl get scaledobject -n kubescale
+
+# 3. Observe worker pods scaling from 1/2 up to 20 replicas as Kafka queue fills
+kubectl get pods -n kubescale -l app.kubernetes.io/component=worker -w
 ```
 
 ---

@@ -46,7 +46,7 @@ spec:
       selectPolicy: Min
 ---
 {{- end }}
-{{- if .Values.inference.hpa.enabled }}
+{{- if and .Values.inference.hpa.enabled (not (and .Values.keda.enabled .Values.keda.inference.enabled)) }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -89,7 +89,7 @@ spec:
           value: 10
           periodSeconds: 60
 {{- end }}
-{{- if and .Values.worker.enabled .Values.worker.hpa.enabled }}
+{{- if and .Values.worker.enabled .Values.worker.hpa.enabled (not (and .Values.keda.enabled .Values.keda.worker.enabled)) }}
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler

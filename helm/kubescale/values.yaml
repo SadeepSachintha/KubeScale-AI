@@ -234,3 +234,26 @@ podDisruptionBudget:
 secrets:
   apiKey: "kubescale-dev-secret-key"
   internalToken: "kubescale-internal-cluster-auth-token"
+
+# ------------------------------------------------------------------------------
+# Event-Driven Autoscaling with KEDA (Kafka Lag & Queue Depth)
+# ------------------------------------------------------------------------------
+keda:
+  enabled: true
+  worker:
+    enabled: true
+    minReplicaCount: 1
+    maxReplicaCount: 20
+    lagThreshold: "50"
+    pollingInterval: 15
+    cooldownPeriod: 300
+    consumerGroup: "kubescale-inference-workers"
+  inference:
+    enabled: false
+    minReplicaCount: 2
+    maxReplicaCount: 10
+    pollingInterval: 15
+    cooldownPeriod: 300
+    prometheusServerAddress: "http://prometheus-k8s.monitoring.svc:9090"
+    queueThresholdUs: "5000"
+
