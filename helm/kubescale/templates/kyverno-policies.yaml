@@ -1,0 +1,55 @@
+{{- if .Values.security.kyverno.enabled }}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: {{ include "kubescale.fullname" . }}-disallow-root
+  labels:
+    {{- include "kubescale.labels" . | nindent 4 }}
+spec:
+  validationFailureAction: {{ .Values.security.kyverno.validationFailureAction | default "Enforce" }}
+  rules:
+    - name: check-run-as-non-root
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - {{ .Release.Namespace }}
+      validate:
+        message: "Containers must run as non-root (UID >= 10000)."
+        pattern:
+          spec:
+            =(securityContext):
+              runAsNonRoot: true
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: {{ include "kubescale.fullname" . }}-require-limits
+  labels:
+    {{- include "kubescale.labels" . | nindent 4 }}
+spec:
+  validationFailureAction: {{ .Values.security.kyverno.validationFailureAction | default "Enforce" }}
+  rules:
+    - name: validate-resources
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - {{ .Release.Namespace }}
+      validate:
+        message: "Resource requests and limits are mandatory for all pods in this namespace."
+        pattern:
+          spec:
+            containers:
+              - resources:
+                  requests:
+                    cpu: "?*"
+                    memory: "?*"
+                  limits:
+                    cpu: "?*"
+                    memory: "?*"
+{{- end }}

@@ -303,6 +303,17 @@ canary:
     minSuccessRate: 99
     maxLatencyMs: 200
 
+# ------------------------------------------------------------------------------
+# Zero-Trust Security Policies: Kyverno & Pod Security Admission
+# ------------------------------------------------------------------------------
+security:
+  podSecurityStandards:
+    enforce: "restricted"
+  kyverno:
+    enabled: true
+    validationFailureAction: "Audit"
+
+
 
 
 

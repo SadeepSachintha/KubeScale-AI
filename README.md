@@ -482,7 +482,27 @@ kubectl port-forward svc/argocd-server -n argocd 8080:443
 
 ---
 
-## 12. Continuous Integration & Quality Assurance
+## 12. Zero-Trust Security Policies (Kyverno)
+
+To enforce **Pod Security Standards (Restricted)** and prevent misconfigurations from reaching the cluster, KubeScale AI includes declarative **Kyverno (`kyverno.io/v1`)** admission guardrails:
+
+* **Disallow Root User (`security/kyverno/disallow-root-user.yaml`):** Blocks any container attempting to run as UID 0; mandates `runAsNonRoot: true` and non-privileged UID $\ge 10000$.
+* **Mandatory Resource Limits (`security/kyverno/require-resource-limits.yaml`):** Blocks pods lacking CPU and Memory requests and limits to guard against node starvation.
+* **Disallow Privilege Escalation (`security/kyverno/disallow-privilege-escalation.yaml`):** Mandates `allowPrivilegeEscalation: false` and drops all Linux kernel capabilities.
+* **Disallow HostPath Mounts (`security/kyverno/disallow-host-path.yaml`):** Prohibits mounting host filesystems, guarding against container escape.
+
+```bash
+# 1. Install Kyverno and apply Zero-Trust Policies
+make kyverno-install
+
+# 2. Verify active ClusterPolicies and compliance reports
+kubectl get clusterpolicy
+kubectl get policyreport -A
+```
+
+---
+
+## 13. Continuous Integration & Quality Assurance
 
 | Pipeline | Trigger | Checks Executed |
 |:---|:---|:---|
@@ -500,9 +520,10 @@ make test
 
 ---
 
-## 13. License
+## 14. License
 
 This project is licensed under the Apache 2.0 License.
+
 
 
 

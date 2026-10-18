@@ -100,6 +100,11 @@ argocd-install: ## Install ArgoCD GitOps engine and apply App-of-Apps root appli
 	@echo "--> Installing ArgoCD and applying GitOps root application..."
 	./scripts/setup_argocd.sh
 
+kyverno-install: ## Install Kyverno policy engine and enforce Zero-Trust admission rules
+	@echo "--> Installing Kyverno and applying cluster security policies..."
+	./scripts/setup_kyverno.sh
+
+
 
 
 
