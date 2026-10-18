@@ -7,7 +7,7 @@ PROJECT_NAME := kubescale-ai
 NAMESPACE := kubescale
 DOCKER_IMAGE := kubescale/gateway:latest
 
-.PHONY: help init test lint docker-build helm-lint helm-template tf-fmt tf-validate tf-plan cluster-local load-test clean
+.PHONY: help init test lint docker-build worker-build helm-lint helm-template tf-fmt tf-validate tf-plan cluster-local load-test clean
 
 help: ## Show this help message
 	@echo "======================================================================"
@@ -18,16 +18,22 @@ help: ## Show this help message
 init: ## Initialize local Python virtual environment and dependencies
 	@echo "--> Initializing Python virtual environment..."
 	python3 -m venv .venv
-	source .venv/bin/activate && pip install --upgrade pip && pip install -r gateway/requirements.txt
+	source .venv/bin/activate && pip install --upgrade pip && \
+		pip install -r gateway/requirements.txt && pip install -r worker/requirements.txt
 	@echo "--> Initialized successfully. Activate with: source .venv/bin/activate"
 
-test: ## Run unit and integration tests for FastAPI Gateway
-	@echo "--> Running gateway pytest test suite..."
-	PYTHONPATH=gateway pytest -v gateway/tests/
+test: ## Run unit and integration tests across gateway and worker services
+	@echo "--> Running pytest test suite..."
+	source .venv/bin/activate && pytest -v
 
 docker-build: ## Build FastAPI Gateway Docker container image
-	@echo "--> Building Docker image $(DOCKER_IMAGE)..."
+	@echo "--> Building Gateway Docker image $(DOCKER_IMAGE)..."
 	docker build -t $(DOCKER_IMAGE) ./gateway
+
+worker-build: ## Build Async Inference Worker Docker container image
+	@echo "--> Building Worker Docker image kubescale/worker:latest..."
+	docker build -t kubescale/worker:latest ./worker
+
 
 helm-lint: ## Lint Helm chart using local Helm or fallback container
 	@echo "--> Linting Helm chart..."

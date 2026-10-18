@@ -22,6 +22,20 @@ metadata:
 spec:
   minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
   selector:
+---
+{{- if .Values.worker.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "kubescale.worker.fullname" . }}-pdb
+  labels:
+    {{- include "kubescale.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
     matchLabels:
-      {{- include "kubescale.inference.selectorLabels" . | nindent 6 }}
+      {{- include "kubescale.worker.selectorLabels" . | nindent 6 }}
 {{- end }}
+{{- end }}
+

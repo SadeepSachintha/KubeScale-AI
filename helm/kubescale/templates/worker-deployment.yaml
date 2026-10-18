@@ -1,0 +1,65 @@
+{{- if .Values.worker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kubescale.worker.fullname" . }}
+  labels:
+    {{- include "kubescale.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  replicas: {{ .Values.worker.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: {{ .Values.worker.rollingUpdate.maxSurge }}
+      maxUnavailable: {{ .Values.worker.rollingUpdate.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "kubescale.worker.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kubescale.worker.selectorLabels" . | nindent 8 }}
+        {{- include "kubescale.labels" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "{{ .Values.worker.service.port }}"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: worker
+          image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag }}"
+          imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.worker.service.port }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "kubescale.fullname" . }}-config
+            - secretRef:
+                name: {{ include "kubescale.fullname" . }}-secrets
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.worker.probes.liveness.path }}
+              port: {{ .Values.worker.service.port }}
+            initialDelaySeconds: {{ .Values.worker.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.worker.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.worker.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.worker.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.worker.probes.readiness.path }}
+              port: {{ .Values.worker.service.port }}
+            initialDelaySeconds: {{ .Values.worker.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.worker.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.worker.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.worker.probes.readiness.failureThreshold }}
+{{- end }}

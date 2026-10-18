@@ -74,3 +74,17 @@ app.kubernetes.io/name: {{ include "kubescale.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/component: inference
 {{- end }}
+
+{{/*
+Worker component fullname & selector labels
+*/}}
+{{- define "kubescale.worker.fullname" -}}
+{{- printf "%s-worker" (include "kubescale.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "kubescale.worker.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "kubescale.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: worker
+{{- end }}
+

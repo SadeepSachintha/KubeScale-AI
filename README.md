@@ -41,19 +41,19 @@ Mid-market companies frequently run mission-critical machine learning and event-
  │          ▼                                               ▼            │
  │   ┌───────────────────────────┐          ┌──────────────────────────┐  │
  │   │ FastAPI Gateway (HPA)     │  gRPC    │ Triton / ONNX Pods (HPA) │  │
- │   │ - Deployment (2-10 Replicas)────────►│ - Dynamic Batching       │  │
+ │   │ - Deployment (2-10 Pods)  │─────────►│ - Dynamic Batching       │  │
  │   │ - ConfigMap & K8s Secrets │  (8001)  │ - Model Repo (S3 / PVC)  │  │
  │   │ - Rolling Zero-Downtime   │          │ - Multi-Instance Workers │  │
  │   └─────────────┬─────────────┘          └─────────────▲────────────┘  │
  │                 │                                      │               │
- │                 │ Event Stream (Kafka Producer)        │               │
- │                 ▼                                      │               │
- │   ┌───────────────────────────┐                        │               │
- │   │ Strimzi Kafka Operator    │                        │               │
- │   │ - 3-Broker StatefulSet    │                        │               │
- │   │ - Dynamic PVC Storage     │────────────────────────┘               │
- │   │ - Zero Message Loss (ISR) │   Asynchronous Consumer Queue          │
- │   └───────────────────────────┘                                        │
+ │                 │ Event Stream (Kafka Producer)        │ gRPC Batch    │
+ │                 ▼                                      │ (8001)        │
+ │   ┌───────────────────────────┐          ┌─────────────┴────────────┐  │
+ │   │ Strimzi Kafka Operator    │          │ Async Worker Pods (HPA)  │  │
+ │   │ - 3-Broker StatefulSet    │─────────►│ - Consumer Micro-Batch   │  │
+ │   │ - Dynamic PVC Storage     │ (events) │ - Offset Commit Guarantees│ │
+ │   │ - Zero Message Loss (ISR) │◄─────────│ - Writes to Result Topic │  │
+ │   └───────────────────────────┘ (results)└──────────────────────────┘  │
  └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -66,8 +66,8 @@ sequenceDiagram
     participant Ingress as Nginx Ingress
     participant Gateway as FastAPI Gateway Pods (HPA)
     participant Triton as Triton Inference Pods (HPA)
-    participant Kafka as Strimzi Kafka Brokers (3-Node StatefulSet)
-    participant S3 as S3 Model Repository
+    participant Kafka as Strimzi Kafka (3-Broker StatefulSet)
+    participant Worker as Async Consumer Worker Pods (HPA)
 
     Note over Gateway,Triton: Path A: Synchronous Low-Latency Inference
     Client->>Ingress: POST /v1/models/sentiment_onnx/predict
@@ -78,12 +78,19 @@ sequenceDiagram
     Triton-->>Gateway: InferResponse (Tensors + Latency)
     Gateway-->>Client: 200 OK (Predictions, Probabilities)
 
-    Note over Gateway,Kafka: Path B: Asynchronous Decoupled Event Stream
+    Note over Gateway,Worker: Path B: Asynchronous Decoupled Event Stream
     Client->>Ingress: POST /v1/models/sentiment_onnx/async-predict
     Ingress->>Gateway: Forward Async Request
     Gateway->>Kafka: Produce Event to "inference-requests" (acks=all)
     Kafka-->>Gateway: RecordMetadata (partition, offset)
     Gateway-->>Client: 202 Accepted (request_id, topic, queued)
+
+    Worker->>Kafka: Poll Records Batch (max_records=32)
+    Kafka-->>Worker: Micro-Batch of Inference Requests
+    Worker->>Triton: Vectorized Batch InferRequest (gRPC :8001)
+    Triton-->>Worker: Batch InferResponse
+    Worker->>Kafka: Produce Results to "inference-results"
+    Worker->>Kafka: Commit Consumer Offsets (At-Least-Once Delivery)
 ```
 
 ---
@@ -99,10 +106,11 @@ sequenceDiagram
 * **Stateful Streaming Core:** 3-node enterprise Kafka cluster provisioned by the **Strimzi Kafka Operator**, backed by `StatefulSets`, headless internal services, and dynamic `PersistentVolumeClaims (gp3)` guaranteeing zero message loss during node drain or eviction.
 * **Decoupled Model Inference Service:** Dedicated **Triton Inference Server** deployment supporting dynamic batching (`max_queue_delay_microseconds: 5000`), multi-instance CPU/GPU worker queues, and gRPC internal communication over port 8001.
 * **API Gateway & Microservices:** Stateless FastAPI ingress microservices configured with zero-downtime rolling upgrades (`maxSurge: 25%`, `maxUnavailable: 0`), Prometheus telemetry, and graceful lifespan connection pooling.
+* **Asynchronous Inference Workers:** Dedicated Kafka consumer workers (`worker/`) implementing micro-batching, gRPC Triton execution, and reliable offset commit management.
 * **Cluster Configuration:** Parameterized via `ConfigMaps` and sealed/base64 `Secrets`.
 
 ### Module 3: Elasticity & Self-Healing
-* **Horizontal Pod Autoscaling (HPA):** Dynamically scales both FastAPI gateway and Triton worker pods between **2 and 10 replicas** based on CPU/Memory saturation and traffic volume.
+* **Horizontal Pod Autoscaling (HPA):** Dynamically scales FastAPI gateway, Triton worker, and Kafka consumer pods between **2 and 10 replicas** based on CPU/Memory saturation and traffic volume.
 * **Resilience Probes:** Granular `readinessProbe` (preventing early traffic delivery before models load) and `livenessProbe` (automatic pod reboot upon deadlock), plus `startupProbe` to handle slow model initializations.
 * **Resource Quotas & Limits:** Enforced CPU and Memory `requests` and `limits` to guard against noisy neighbors and memory thrashing.
 * **PodDisruptionBudgets (PDB):** Guarantees high availability during Kubernetes cluster upgrades and node scale-down operations.
@@ -138,6 +146,8 @@ kubescale-ai/
 │           ├── _helpers.tpl           # Template naming & selector helpers
 │           ├── gateway-deployment.yaml# FastAPI stateless deployment with rolling updates
 │           ├── gateway-service.yaml   # ClusterIP service for API Gateway
+│           ├── worker-deployment.yaml # Async Kafka consumer worker deployment
+│           ├── worker-service.yaml    # Telemetry and health service for worker pods
 │           ├── inference-deployment.yaml # Triton server deployment with dynamic batching
 │           ├── inference-service.yaml # Multi-port service (HTTP 8000, gRPC 8001, Metrics 8002)
 │           ├── inference-serviceaccount.yaml # ServiceAccount annotated with IRSA role ARN
@@ -161,6 +171,16 @@ kubescale-ai/
 │   └── tests/
 │       ├── __init__.py
 │       └── test_api.py                # Unit & integration test suite
+├── worker/
+│   ├── Dockerfile                     # Multi-stage secure non-root container build
+│   ├── requirements.txt               # Kafka consumer, Triton gRPC, and Prometheus
+│   ├── app/
+│   │   ├── __init__.py
+│   │   ├── config.py                  # Consumer and batching settings
+│   │   └── consumer.py                # Micro-batching Kafka consumer loop
+│   └── tests/
+│       ├── __init__.py
+│       └── test_worker.py             # Worker micro-batching unit tests
 ├── models/
 │   ├── sentiment_onnx/
 │   │   ├── config.pbtxt               # Triton model configuration (dynamic batching)

@@ -88,5 +88,50 @@ spec:
         - type: Percent
           value: 10
           periodSeconds: 60
+{{- end }}
+{{- if and .Values.worker.enabled .Values.worker.hpa.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "kubescale.worker.fullname" . }}
+  labels:
+    {{- include "kubescale.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "kubescale.worker.fullname" . }}
+  minReplicas: {{ .Values.worker.hpa.minReplicas }}
+  maxReplicas: {{ .Values.worker.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.worker.hpa.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.worker.hpa.targetMemoryUtilizationPercentage }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 20
+          periodSeconds: 60
       selectPolicy: Min
 {{- end }}
+

@@ -36,6 +36,32 @@ gateway:
     targetMemoryUtilizationPercentage: 75
 
 # ------------------------------------------------------------------------------
+# Asynchronous Kafka Consumer Worker (Production Settings)
+# ------------------------------------------------------------------------------
+worker:
+  enabled: true
+  replicaCount: 3
+  image:
+    repository: 123456789012.dkr.ecr.us-east-1.amazonaws.com/kubescale/worker
+    tag: v1.0.0
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+  hpa:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+# ------------------------------------------------------------------------------
 # Triton Inference Server Production Settings
 # ------------------------------------------------------------------------------
 inference:
