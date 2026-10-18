@@ -192,4 +192,21 @@ monitoring:
   prometheusRules:
     enabled: true
 
+# ------------------------------------------------------------------------------
+# External Secrets Operator (Production: AWS Secrets Manager with IRSA)
+# ------------------------------------------------------------------------------
+externalSecrets:
+  enabled: true
+  provider: "aws"
+  refreshInterval: "30m"
+  remoteSecretKey: "kubescale/production/credentials"
+  aws:
+    region: "us-east-1"
+  serviceAccount:
+    create: true
+    name: "kubescale-eso-sa"
+    annotations:
+      eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/kubescale-eso-irsa-role"
+
+
 

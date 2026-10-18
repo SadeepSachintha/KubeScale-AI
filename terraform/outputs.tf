@@ -49,7 +49,13 @@ output "model_repository_bucket" {
   value       = aws_s3_bucket.model_repository.id
 }
 
+output "eso_irsa_role_arn" {
+  description = "IAM Role ARN for External Secrets Operator IRSA service account"
+  value       = aws_iam_role.eso_secrets_access.arn
+}
+
 output "kubectl_config_command" {
   description = "Command to update local kubeconfig with the provisioned EKS cluster"
   value       = "aws eks update-kubeconfig --region ${var.aws_region} --name ${aws_eks_cluster.this.name}"
 }
+

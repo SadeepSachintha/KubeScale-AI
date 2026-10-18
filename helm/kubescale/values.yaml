@@ -269,4 +269,24 @@ monitoring:
   prometheusRules:
     enabled: true
 
+# ------------------------------------------------------------------------------
+# External Secrets Operator (AWS Secrets Manager / Vault)
+# ------------------------------------------------------------------------------
+externalSecrets:
+  enabled: false
+  provider: "aws"
+  refreshInterval: "1h"
+  remoteSecretKey: "kubescale/dev/credentials"
+  aws:
+    region: "us-east-1"
+  vault:
+    server: "http://vault.vault.svc:8200"
+    path: "secret"
+    role: "kubescale-role"
+  serviceAccount:
+    create: true
+    name: "kubescale-eso-sa"
+    annotations: {}
+
+
 

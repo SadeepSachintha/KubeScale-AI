@@ -88,6 +88,11 @@ monitoring-install: ## Deploy Prometheus Operator, Alertmanager, and Curated Gra
 	@echo "--> Deploying Prometheus & Grafana stack..."
 	./scripts/setup_monitoring.sh
 
+eso-install: ## Install External Secrets Operator (ESO) for AWS Secrets Manager / Vault sync
+	@echo "--> Installing External Secrets Operator..."
+	./scripts/setup_eso.sh
+
+
 
 
 load-test: ## Run concurrent load testing script against local gateway

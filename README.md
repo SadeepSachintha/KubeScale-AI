@@ -390,13 +390,31 @@ kubectl port-forward svc/prometheus-stack-grafana 3000:80 -n monitoring
 
 ---
 
-## 9. Continuous Integration & Quality Assurance
+## 9. Cloud Credentials & External Secrets Operator (ESO)
+
+To maintain strict zero-trust hygiene and prevent accidental credential leaks into Git, production deployments integrate the **External Secrets Operator (`external-secrets.io`)**:
+
+* **AWS Secrets Manager Sync:** Fetches keys from `kubescale/production/*` using dedicated AWS IAM Roles for Service Accounts (IRSA) without persistent AWS credentials stored in the cluster.
+* **Automatic Secret Rotation:** Continuously synchronizes rotated credentials (`refreshInterval: 30m`) into the native `kubescale-secrets` resource consumed by Gateway and Worker pods.
+* **HashiCorp Vault Fallback:** Includes parameterized support for Vault Kubernetes Auth.
+
+```bash
+# 1. Install External Secrets Operator (ESO)
+make eso-install
+
+# 2. Verify SecretStores and synchronized Kubernetes Secrets
+kubectl get secretstore -n kubescale
+kubectl get externalsecret -n kubescale
+```
+
+---
+
+## 10. Continuous Integration & Quality Assurance
 
 | Pipeline | Trigger | Checks Executed |
 |:---|:---|:---|
 | **Terraform CI** | Push/PR in `/terraform` | `terraform fmt -check`, `terraform init`, `terraform validate`, `tflint`, `trivy` |
 | **Helm & Container CI** | Push/PR in `/helm`, `/gateway`, `/worker` | `helm lint` (dev & prod values), `helm template`, Python unit tests (`pytest`), Docker container builds |
-
 
 Run all validations locally:
 ```bash
@@ -409,6 +427,7 @@ make test
 
 ---
 
-## 9. License
+## 11. License
 
 This project is licensed under the Apache 2.0 License.
+
