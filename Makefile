@@ -92,6 +92,11 @@ eso-install: ## Install External Secrets Operator (ESO) for AWS Secrets Manager 
 	@echo "--> Installing External Secrets Operator..."
 	./scripts/setup_eso.sh
 
+flagger-install: ## Install Flagger Progressive Delivery Controller for Canary Deployments
+	@echo "--> Installing Flagger Controller..."
+	./scripts/setup_flagger.sh
+
+
 
 
 

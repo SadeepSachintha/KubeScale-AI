@@ -208,5 +208,21 @@ externalSecrets:
     annotations:
       eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/kubescale-eso-irsa-role"
 
+# ------------------------------------------------------------------------------
+# Progressive Delivery: Automated Canary Deployments with Flagger (Production)
+# ------------------------------------------------------------------------------
+canary:
+  enabled: true
+  provider: "nginx"
+  analysis:
+    interval: "1m"
+    threshold: 3
+    maxWeight: 50
+    stepWeight: 10
+  metrics:
+    minSuccessRate: 99
+    maxLatencyMs: 150
+
+
 
 

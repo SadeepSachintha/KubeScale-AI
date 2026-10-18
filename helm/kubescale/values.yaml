@@ -288,5 +288,21 @@ externalSecrets:
     name: "kubescale-eso-sa"
     annotations: {}
 
+# ------------------------------------------------------------------------------
+# Progressive Delivery: Automated Canary Deployments with Flagger
+# ------------------------------------------------------------------------------
+canary:
+  enabled: false
+  provider: "nginx"
+  analysis:
+    interval: "1m"
+    threshold: 5
+    maxWeight: 50
+    stepWeight: 10
+  metrics:
+    minSuccessRate: 99
+    maxLatencyMs: 200
+
+
 
 

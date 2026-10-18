@@ -409,7 +409,43 @@ kubectl get externalsecret -n kubescale
 
 ---
 
-## 10. Continuous Integration & Quality Assurance
+## 10. Progressive Delivery & Automated Canary Deployments (Flagger)
+
+To eliminate deployment risk when updating Gateway code or ML model parameters, production environments utilize **Flagger (`flagger.app`)** with NGINX Ingress:
+
+```
+  New Image Revision Deployed
+              │
+              ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │                 Flagger Canary Controller                   │
+  │   1. Deploys Canary Pods alongside Primary Pods             │
+  │   2. Injects Nginx Ingress Canary Annotations               │
+  │   3. Shifts Traffic: 10% ➔ 20% ➔ 30% ➔ 40% ➔ 50%           │
+  │   4. Evaluates Prometheus:                                  │
+  │      - Request Success Rate >= 99%                          │
+  │      - P99 Latency <= 150ms                                 │
+  └──────────────┬──────────────────────────────┬───────────────┘
+                 │ (success)                    │ (failed metric)
+                 ▼                              ▼
+  ┌─────────────────────────────┐┌──────────────────────────────┐
+  │ Full Promotion to Primary   ││ Immediate Automatic Rollback │
+  │ (Zero Customer Impact)      ││ (Traffic shifts 100% to Prim)│
+  └─────────────────────────────┘└──────────────────────────────┘
+```
+
+```bash
+# 1. Install Flagger Controller for NGINX
+make flagger-install
+
+# 2. Monitor canary progression during an image update
+kubectl get canaries -n kubescale -w
+kubectl describe canary kubescale-gateway -n kubescale
+```
+
+---
+
+## 11. Continuous Integration & Quality Assurance
 
 | Pipeline | Trigger | Checks Executed |
 |:---|:---|:---|
@@ -427,7 +463,8 @@ make test
 
 ---
 
-## 11. License
+## 12. License
 
 This project is licensed under the Apache 2.0 License.
+
 

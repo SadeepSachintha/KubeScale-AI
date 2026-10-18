@@ -1,0 +1,49 @@
+{{- if .Values.canary.enabled }}
+apiVersion: flagger.app/v1beta1
+kind: Canary
+metadata:
+  name: {{ include "kubescale.gateway.fullname" . }}
+  labels:
+    {{- include "kubescale.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  # Deployment target to be canary-managed
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "kubescale.gateway.fullname" . }}
+  # Ingress reference for automated traffic shifting
+  ingressRef:
+    apiVersion: networking.k8s.io/v1
+    kind: Ingress
+    name: {{ include "kubescale.fullname" . }}-ingress
+  # HPA reference to preserve scaling across primary and canary
+  autoscalerRef:
+    apiVersion: autoscaling/v2
+    kind: HorizontalPodAutoscaler
+    name: {{ include "kubescale.gateway.fullname" . }}
+  service:
+    port: {{ .Values.gateway.service.port }}
+    targetPort: http
+  analysis:
+    # Schedule interval between validation checks
+    interval: {{ .Values.canary.analysis.interval | default "1m" }}
+    # Max number of failed metric checks before automated rollback
+    threshold: {{ .Values.canary.analysis.threshold | default 5 }}
+    # Max traffic percentage routed to canary (e.g. 50%)
+    maxWeight: {{ .Values.canary.analysis.maxWeight | default 50 }}
+    # Increment percentage per step
+    stepWeight: {{ .Values.canary.analysis.stepWeight | default 10 }}
+    # Real-time Prometheus validation metrics
+    metrics:
+      - name: request-success-rate
+        # Minimum acceptable HTTP 2xx/3xx/4xx rate (e.g., 99%)
+        thresholdRange:
+          min: {{ .Values.canary.metrics.minSuccessRate | default 99 }}
+        interval: 1m
+      - name: request-duration
+        # Maximum acceptable P99 latency threshold in milliseconds (e.g., 200ms)
+        thresholdRange:
+          max: {{ .Values.canary.metrics.maxLatencyMs | default 200 }}
+        interval: 1m
+{{- end }}
