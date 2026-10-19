@@ -37,13 +37,17 @@ provider "aws" {
   region = var.aws_region
 
   default_tags {
-    tags = var.tags
+    tags = merge(
+      var.tags,
+      {
+        Environment = var.environment
+      }
+    )
   }
 }
 
-# Data source for current AWS caller identity and partition
+# Data source for current AWS caller identity
 data "aws_caller_identity" "current" {}
-data "aws_partition" "current" {}
 
 # Kubernetes and Helm provider configurations referencing the EKS cluster
 provider "kubernetes" {
