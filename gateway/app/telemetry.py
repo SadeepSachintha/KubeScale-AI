@@ -3,6 +3,7 @@ OpenTelemetry Distributed Tracing & W3C Context Propagation.
 Provides trace initialization, context injection/extraction across Kafka & gRPC,
 and safe fallback no-op wrappers for local testing and container execution.
 """
+from __future__ import annotations
 
 from contextlib import contextmanager
 import logging

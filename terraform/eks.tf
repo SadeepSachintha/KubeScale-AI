@@ -174,9 +174,9 @@ resource "aws_eks_node_group" "primary" {
   tags = merge(
     var.tags,
     {
-      Name                                                = "${var.project_name}-worker-node"
-      "k8s.io/cluster-autoscaler/${var.cluster_name}"     = "owned"
-      "k8s.io/cluster-autoscaler/enabled"                 = "true"
+      Name                                            = "${var.project_name}-worker-node"
+      "k8s.io/cluster-autoscaler/${var.cluster_name}" = "owned"
+      "k8s.io/cluster-autoscaler/enabled"             = "true"
     }
   )
 

@@ -2,6 +2,7 @@
 OpenTelemetry Distributed Tracing & W3C Context Propagation for Async Worker.
 Enables tracing of Kafka batch polling, micro-batch Triton inference, and offset commits.
 """
+from __future__ import annotations
 
 from contextlib import contextmanager
 import logging

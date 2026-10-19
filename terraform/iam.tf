@@ -126,7 +126,7 @@ resource "aws_iam_policy" "inference_s3_read_only" {
 
 resource "aws_iam_role_policy_attachment" "inference_s3_attach" {
   role       = aws_iam_role.inference_s3_access.name
-  policy_arn = aws_iam_policy.inference_s3_read_only.policy_arn
+  policy_arn = aws_iam_policy.inference_s3_read_only.arn
 }
 
 # ------------------------------------------------------------------------------
@@ -187,6 +187,6 @@ resource "aws_iam_policy" "eso_secrets_read" {
 
 resource "aws_iam_role_policy_attachment" "eso_secrets_attach" {
   role       = aws_iam_role.eso_secrets_access.name
-  policy_arn = aws_iam_policy.eso_secrets_read.policy_arn
+  policy_arn = aws_iam_policy.eso_secrets_read.arn
 }
 
