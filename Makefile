@@ -26,9 +26,17 @@ test: ## Run unit and integration tests across gateway and worker services
 	@echo "--> Running pytest test suite..."
 	source .venv/bin/activate && pytest -v
 
+gateway-go-test: ## Run unit tests for Go High-Throughput Gateway
+	@echo "--> Running Go gateway test suite..."
+	cd gateway-go && go test -v ./...
+
 docker-build: ## Build FastAPI Gateway Docker container image
 	@echo "--> Building Gateway Docker image $(DOCKER_IMAGE)..."
 	docker build -t $(DOCKER_IMAGE) ./gateway
+
+gateway-go-docker: ## Build Go High-Throughput Gateway Docker container image (<25MB)
+	@echo "--> Building Go Gateway Docker image kubescale/gateway-go:latest..."
+	docker build -t kubescale/gateway-go:latest ./gateway-go
 
 worker-build: ## Build Async Inference Worker Docker container image
 	@echo "--> Building Worker Docker image kubescale/worker:latest..."

@@ -1,0 +1,130 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubescale-gateway-go
+  namespace: {{ .Values.namespace | default "kubescale" }}
+  labels:
+    app.kubernetes.io/name: kubescale-gateway-go
+    app.kubernetes.io/component: ingress-gateway
+    app.kubernetes.io/part-of: kubescale-ai
+    app.kubernetes.io/version: "2.0.0"
+spec:
+  replicas: {{ .Values.gateway.replicaCount | default 3 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubescale-gateway-go
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kubescale-gateway-go
+        app.kubernetes.io/component: ingress-gateway
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      # PSS Restricted Compliance: run as non-root user (UID 10001)
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gateway-go
+          image: "{{ .Values.gateway.image.repository | default "kubescale/gateway-go" }}:{{ .Values.gateway.image.tag | default "2.0.0" }}"
+          imagePullPolicy: {{ .Values.gateway.image.pullPolicy | default "IfNotPresent" }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8000"
+            - name: ENVIRONMENT
+              value: "{{ .Values.environment | default "prod" }}"
+            - name: TRITON_HTTP_URL
+              value: "http://{{ .Values.inference.serviceName | default "kubescale-inference" }}:8000"
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: "{{ .Values.kafka.bootstrapServers | default "kubescale-kafka-bootstrap:9092" }}"
+            - name: KAFKA_TELEMETRY_TOPIC
+              value: "{{ .Values.kafka.telemetryTopic | default "telemetry-raw" }}"
+            - name: DEFAULT_MODEL_NAME
+              value: "{{ .Values.inference.defaultModel | default "sentiment_onnx" }}"
+            - name: RATE_LIMIT_RPS
+              value: "{{ .Values.gateway.rateLimit.rps | default "2000" }}"
+            - name: RATE_LIMIT_BURST
+              value: "{{ .Values.gateway.rateLimit.burst | default "4000" }}"
+          envFrom:
+            - configMapRef:
+                name: kubescale-config
+                optional: true
+            - secretRef:
+                name: kubescale-secrets
+                optional: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 2
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubescale-gateway-go
+  namespace: {{ .Values.namespace | default "kubescale" }}
+  labels:
+    app.kubernetes.io/name: kubescale-gateway-go
+    app.kubernetes.io/component: ingress-gateway
+    app.kubernetes.io/part-of: kubescale-ai
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+      protocol: TCP
+    - name: metrics
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: kubescale-gateway-go
